@@ -4926,6 +4926,7 @@ function renderAgents() {
                 attachments: outgoingAttachments,
               }),
             });
+            pendingReply = null;
             await loadState();
             return;
           }
@@ -5013,17 +5014,20 @@ function renderAgents() {
           if (buffer.trim()) {
             processSseBlock(buffer.trim());
           }
+          pendingReply = null;
           await loadState();
         } catch (e) {
           if (e?.name === "AbortError") {
             abortedByUser = true;
             errorEl.textContent = "";
+            pendingReply = null;
             await loadState();
           } else {
             errorEl.textContent = "发送失败：" + e.message;
             messageInput.value = originalMessage;
             pendingAttachments = originalPendingAttachments;
             renderComposeAttachments();
+            pendingReply = null;
             await loadState();
           }
         } finally {
