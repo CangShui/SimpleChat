@@ -1,5 +1,11 @@
 # Py Lite Chat 项目功能介绍
 
+<img width="3840" height="1875" alt="image" src="https://github.com/user-attachments/assets/ef37ab19-5270-440a-a224-fae91ce6adba" />
+<img width="3835" height="1871" alt="image" src="https://github.com/user-attachments/assets/cbe1acfe-09a6-47b7-800c-dad69b58a165" />
+<img width="3840" height="1875" alt="image" src="https://github.com/user-attachments/assets/0ad3c87c-7a30-486d-a3c8-31e08cb2cff9" />
+
+
+
 ## 1. 项目定位
 
 Py Lite Chat 是一个基于 FastAPI 的轻量级多用户聊天系统，采用本地 JSON 文件存储，不依赖数据库。它适合内网部署、个人私有部署、小团队共享使用，也适合做 OpenAI 兼容接口的简洁 Web 前端。
