@@ -1,4 +1,4 @@
-# Py Lite Chat 项目功能介绍
+# SimpleChat 项目功能介绍
 
 <img width="3840" height="1875" alt="image" src="https://github.com/user-attachments/assets/ef37ab19-5270-440a-a224-fae91ce6adba" />
 <img width="3835" height="1871" alt="image" src="https://github.com/user-attachments/assets/cbe1acfe-09a6-47b7-800c-dad69b58a165" />
