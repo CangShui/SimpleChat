@@ -1,0 +1,5128 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>My Chat</title>
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github-dark.min.css"
+    />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/4.3.0/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <style>
+      :root {
+        --white: #ffffff;
+        --black: #2f2f2f;
+        --gray: #f7fbff;
+        --primary: #1d93ab;
+        --second: #e9f8ff;
+        --hover: #f3f8fb;
+        --bar: rgba(0, 0, 0, 0.1);
+        --border: 1px solid #e2e8ee;
+        --shadow: 0 24px 80px rgba(17, 24, 39, 0.12);
+        --card-shadow: 0 2px 8px rgba(17, 24, 39, 0.06);
+        --sidebar-width: 300px;
+        --ui-font-family: "Noto Sans", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+        --chat-font-family: "Noto Sans", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+        --ui-font-size: 14px;
+        --chat-font-size: 14px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        font-family: var(--ui-font-family);
+        font-size: var(--ui-font-size);
+        background: radial-gradient(circle at 0% 0%, #eef9ff 0%, #f8fbfd 45%, #f3f7fb 100%);
+        color: var(--black);
+      }
+
+      button,
+      input,
+      textarea,
+      select {
+        font: inherit;
+      }
+
+      .auth-screen {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+      }
+
+      .auth-card {
+        width: min(460px, 100%);
+        background: var(--white);
+        border: var(--border);
+        border-radius: 20px;
+        box-shadow: var(--shadow);
+        padding: 24px;
+      }
+
+      .auth-title {
+        margin: 0;
+        font-size: 22px;
+        font-weight: 700;
+      }
+
+      .auth-subtitle {
+        margin: 8px 0 0;
+        font-size: 13px;
+        color: #5b6b78;
+      }
+
+      .auth-card input {
+        width: 100%;
+        margin-top: 16px;
+        border: var(--border);
+        background: #f9fcff;
+        border-radius: 12px;
+        min-height: 42px;
+        padding: 0 12px;
+      }
+
+      .auth-card button {
+        width: 100%;
+        margin-top: 12px;
+      }
+
+      .auth-error {
+        margin-top: 10px;
+        min-height: 20px;
+        font-size: 13px;
+        color: #c02626;
+      }
+
+      #appShell {
+        width: 100vw;
+        height: 100vh;
+        margin: 0;
+        border: none;
+        border-radius: 0;
+        box-shadow: none;
+        background: var(--white);
+        overflow: hidden;
+        display: none;
+        position: relative;
+      }
+
+      .sidebar {
+        width: var(--sidebar-width);
+        height: 100%;
+        border-right: var(--border);
+        background: var(--second);
+        display: flex;
+        flex-direction: column;
+        padding: 18px;
+        gap: 12px;
+      }
+
+      .sidebar-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 10px;
+        padding-top: 8px;
+      }
+
+      .sidebar-title {
+        font-size: calc(var(--ui-font-size) + 6px);
+        font-weight: 700;
+      }
+
+      .sidebar-subtitle {
+        margin-top: 4px;
+        font-size: calc(var(--ui-font-size) - 2px);
+        color: #5b6b78;
+      }
+
+      .sidebar-actions {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .sidebar-search {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 36px;
+        padding: 0 8px;
+        border: var(--border);
+        border-radius: 12px;
+        background: var(--white);
+        color: #6f8395;
+      }
+
+      .sidebar-search svg {
+        width: 14px;
+        height: 14px;
+        stroke: currentColor;
+        stroke-width: 1.9;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        fill: none;
+        flex-shrink: 0;
+      }
+
+      .sidebar-search-input {
+        flex: 1;
+        min-width: 0;
+        border: none;
+        outline: none;
+        background: transparent;
+        color: var(--black);
+        font-size: calc(var(--ui-font-size) - 1px);
+      }
+
+      .sidebar-search-input::placeholder {
+        color: #7a8d9d;
+      }
+
+      .sidebar-search-tools {
+        display: none;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .sidebar-search-tools.show {
+        display: inline-flex;
+      }
+
+      .sidebar-search-counter {
+        min-width: 34px;
+        text-align: center;
+        font-size: 11px;
+        color: #758a9b;
+        user-select: none;
+      }
+
+      .sidebar-search-nav-btn {
+        min-height: 22px;
+        width: 22px;
+        height: 22px;
+        padding: 0;
+        border-radius: 7px;
+        border: 1px solid transparent;
+        background: transparent;
+        color: #708496;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .sidebar-search-nav-btn svg {
+        width: 12px;
+        height: 12px;
+      }
+
+      .sidebar-search-nav-btn:hover {
+        background: rgba(29, 147, 171, 0.12);
+        border-color: rgba(29, 147, 171, 0.38);
+        color: #0e6f86;
+      }
+
+      .sidebar-search-nav-btn:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+
+      .sidebar-search-clear {
+        min-height: 22px;
+        width: 22px;
+        height: 22px;
+        padding: 0;
+        border-radius: 7px;
+        border: 1px solid transparent;
+        background: transparent;
+        color: #708496;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .sidebar-search-clear:hover {
+        background: rgba(29, 147, 171, 0.12);
+        border-color: rgba(29, 147, 171, 0.38);
+        color: #0e6f86;
+      }
+
+      .sidebar-search-clear svg {
+        width: 12px;
+        height: 12px;
+      }
+
+      .chat-list {
+        flex: 1;
+        overflow: auto;
+        padding-right: 2px;
+      }
+
+      .chat-item {
+        border: 2px solid transparent;
+        border-radius: 12px;
+        padding: 8px 10px;
+        padding-right: 50px;
+        padding-bottom: 10px;
+        min-height: 77px;
+        background: var(--white);
+        box-shadow: var(--card-shadow);
+        margin-bottom: 8px;
+        cursor: pointer;
+        transition: all 0.18s ease;
+        position: relative;
+      }
+
+      .chat-item:hover {
+        background: #fafdff;
+      }
+
+      .chat-item.selected {
+        border-color: var(--primary);
+      }
+
+      .chat-item-title {
+        font-size: var(--ui-font-size);
+        font-weight: 700;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .chat-item-foot {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-top: 6px;
+        font-size: calc(var(--ui-font-size) - 2px);
+        color: #6d7c89;
+      }
+
+      .chat-item-corner-actions {
+        position: absolute;
+        right: 7px;
+        top: 7px;
+        width: 18px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: flex-start;
+        gap: 3px;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.15s ease;
+      }
+
+      .chat-item-delete,
+      .chat-item-outline,
+      .chat-item-export {
+        min-height: 18px;
+        width: 18px;
+        height: 18px;
+        padding: 0;
+        border: 1px solid transparent;
+        border-radius: 4px;
+        background: transparent;
+        color: #6c8293;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease,
+          transform 0.12s ease;
+      }
+
+      .chat-item-delete svg {
+        width: 10px;
+        height: 10px;
+      }
+
+      .chat-item:hover .chat-item-corner-actions,
+      .chat-item.selected .chat-item-corner-actions {
+        opacity: 1;
+        pointer-events: auto;
+      }
+
+      .chat-item-delete:hover {
+        background: rgba(29, 147, 171, 0.12);
+        border-color: rgba(29, 147, 171, 0.38);
+        color: #0e6f86;
+      }
+
+      .chat-item-delete:active {
+        transform: scale(0.96);
+      }
+
+      .chat-item-delete:focus-visible {
+        outline: 2px solid rgba(29, 147, 171, 0.45);
+        outline-offset: 1px;
+      }
+
+      .chat-item-delete svg path {
+        stroke: currentColor;
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      .chat-item-delete {
+        cursor: pointer;
+      }
+
+      body.theme-dark .chat-item-delete {
+        color: #95a8b9;
+      }
+
+      body.theme-dark .chat-item-delete:hover {
+        background: rgba(74, 150, 196, 0.2);
+        border-color: rgba(110, 169, 205, 0.5);
+        color: #b7e8ff;
+      }
+
+      .chat-item-outline svg {
+        width: 10px;
+        height: 10px;
+      }
+
+      .chat-item-outline svg path {
+        stroke: currentColor;
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      .chat-item-export svg {
+        width: 10px;
+        height: 10px;
+      }
+
+      .chat-item-export svg path {
+        stroke: currentColor;
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      .chat-item-outline:hover {
+        background: rgba(29, 147, 171, 0.12);
+        border-color: rgba(29, 147, 171, 0.38);
+        color: #0e6f86;
+      }
+
+      .chat-item-delete *,
+      .chat-item-outline *,
+      .chat-item-export * {
+        pointer-events: none;
+      }
+
+      .chat-item-export:hover {
+        background: rgba(29, 147, 171, 0.12);
+        border-color: rgba(29, 147, 171, 0.38);
+        color: #0e6f86;
+      }
+
+      .chat-item-delete:active,
+      .chat-item-outline:active,
+      .chat-item-export:active {
+        transform: scale(0.96);
+      }
+
+      body.theme-dark .chat-item-outline {
+        color: #95a8b9;
+      }
+
+      body.theme-dark .chat-item-export {
+        color: #95a8b9;
+      }
+
+      body.theme-dark .chat-item-outline:hover {
+        background: rgba(74, 150, 196, 0.2);
+        border-color: rgba(110, 169, 205, 0.5);
+        color: #b7e8ff;
+      }
+
+      body.theme-dark .chat-item-export:hover {
+        background: rgba(74, 150, 196, 0.2);
+        border-color: rgba(110, 169, 205, 0.5);
+        color: #b7e8ff;
+      }
+
+      .sidebar-tail {
+        border-top: var(--border);
+        padding-top: 10px;
+      }
+
+      .main {
+        position: absolute;
+        inset: 0 0 0 var(--sidebar-width);
+        display: flex;
+        flex-direction: column;
+        background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+      }
+
+      .window-header {
+        border-bottom: var(--border);
+        padding: 14px 16px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        min-height: 72px;
+      }
+
+      .window-header-left {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+      }
+
+      .window-main-title {
+        font-size: calc(var(--ui-font-size) + 6px);
+        font-weight: 700;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: min(420px, 48vw);
+      }
+
+      .window-sub-title {
+        margin-top: 2px;
+        font-size: calc(var(--ui-font-size) - 2px);
+        color: #607280;
+      }
+
+      .window-actions {
+        display: flex;
+        gap: 8px;
+      }
+
+      .chat-body {
+        flex: 1;
+        overflow: auto;
+        padding: 18px 16px 24px;
+      }
+
+      .empty-state {
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        color: #7a8792;
+        text-align: center;
+      }
+
+      .empty-state button {
+        margin-top: 14px;
+      }
+
+      .message-row {
+        display: flex;
+        gap: 10px;
+        margin-top: 14px;
+        animation: fadeUp 0.18s ease;
+      }
+
+      .message-row.user {
+        flex-direction: row-reverse;
+      }
+
+      .message-avatar {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        font-weight: 700;
+        border: var(--border);
+        color: #355265;
+        background: #eff5f9;
+        flex: none;
+        margin-top: 1px;
+      }
+
+      .message-row.user .message-avatar {
+        background: #dff5ff;
+      }
+
+      .message-content {
+        max-width: min(760px, calc(100% - 56px));
+        display: flex;
+        flex-direction: column;
+      }
+
+      .message-row.user .message-content {
+        align-items: flex-end;
+      }
+
+      .message-meta {
+        font-family: var(--chat-font-family);
+        font-size: calc(var(--chat-font-size) - 2px);
+        color: #70818e;
+        margin-bottom: 4px;
+      }
+
+      .message-bubble {
+        border: var(--border);
+        border-radius: 14px;
+        padding: 10px 12px;
+        line-height: 1.55;
+        font-family: var(--chat-font-family);
+        font-size: var(--chat-font-size);
+        white-space: normal;
+        word-break: break-word;
+        background: #f8fbfd;
+      }
+
+      .message-bubble-with-actions {
+        position: relative;
+        padding-right: 68px;
+        padding-bottom: 38px;
+      }
+
+      .message-bubble-main {
+        min-height: 18px;
+      }
+
+      .message-action-row {
+        margin-top: 0;
+        position: absolute;
+        right: 8px;
+        bottom: 8px;
+        display: inline-flex;
+        justify-content: flex-end;
+        gap: 6px;
+        min-height: 0;
+      }
+
+      .message-action-btn {
+        min-height: 24px;
+        width: 24px;
+        height: 24px;
+        padding: 0;
+        border-radius: 7px;
+        border: 1px solid #c8d8e7;
+        background: #f2f8fc;
+        color: #3c5b6e;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .message-action-btn svg {
+        width: 13px;
+        height: 13px;
+      }
+
+      .message-action-btn svg path {
+        stroke: currentColor;
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      .message-action-btn:hover {
+        background: rgba(29, 147, 171, 0.12);
+        border-color: rgba(29, 147, 171, 0.38);
+        color: #0e6f86;
+      }
+
+      .message-action-btn.is-copied {
+        background: rgba(29, 147, 171, 0.18);
+        border-color: rgba(29, 147, 171, 0.45);
+        color: #0e6f86;
+      }
+
+      .message-action-btn * {
+        pointer-events: none;
+      }
+
+      .message-row.user .message-bubble {
+        background: var(--second);
+      }
+
+      .typing-indicator {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        color: #5d7385;
+        font-size: 13px;
+      }
+
+      .typing-dots {
+        display: inline-flex;
+        gap: 4px;
+      }
+
+      .typing-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: #5e7f94;
+        opacity: 0.35;
+        animation: typingPulse 1s infinite ease-in-out;
+      }
+
+      .typing-dot:nth-child(2) {
+        animation-delay: 0.18s;
+      }
+
+      .typing-dot:nth-child(3) {
+        animation-delay: 0.36s;
+      }
+
+      .typing-stream {
+        display: inline-flex;
+        align-items: flex-end;
+        gap: 4px;
+        width: 100%;
+        color: #2f4a5c;
+      }
+
+      .pending-stream-render {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .pending-stream-render .markdown-content {
+        margin: 0;
+      }
+
+      .pending-stream-render .streaming-tail {
+        font-family: var(--chat-font-family);
+        white-space: pre-wrap;
+        word-break: break-word;
+        color: inherit;
+      }
+
+      .typing-cursor {
+        width: 7px;
+        height: 1.05em;
+        background: #5e7f94;
+        border-radius: 2px;
+        animation: cursorBlink 1s infinite;
+      }
+
+      body.theme-dark .typing-stream {
+        color: #dce6ef;
+      }
+
+      .message-jump-highlight .message-bubble {
+        box-shadow: 0 0 0 2px rgba(29, 147, 171, 0.35);
+        animation: jumpFlash 1.2s ease;
+      }
+
+      .message-row.search-hit-active .message-bubble {
+        box-shadow: 0 0 0 2px rgba(29, 147, 171, 0.35);
+      }
+
+      .search-highlight {
+        color: inherit;
+        border-radius: 4px;
+        padding: 0 1px;
+        background: rgb(237 78 11);
+      }
+
+      .search-highlight-active {
+        background: rgb(237 78 11);
+        box-shadow: 0 0 0 6px rgb(255 0 0 / 42%);
+      }
+
+      .markdown-content {
+        font-size: var(--chat-font-size);
+        font-family: var(--chat-font-family);
+      }
+
+      .markdown-content p {
+        margin: 0 0 10px;
+      }
+
+      .markdown-content p:last-child {
+        margin-bottom: 0;
+      }
+
+      .inline-code {
+        font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+        font-size: 0.92em;
+        background: #d9ecfb;
+        border: 1px solid #b9d9f2;
+        color: #10364f;
+        border-radius: 6px;
+        padding: 2px 6px;
+        font-weight: 600;
+      }
+
+      .markdown-content :not(pre) > code {
+        font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+        font-size: 0.92em;
+        background: #d9ecfb;
+        border: 1px solid #b9d9f2;
+        color: #10364f;
+        border-radius: 6px;
+        padding: 2px 6px;
+        font-weight: 600;
+      }
+
+      .code-block {
+        border: 1px solid #d4dee8;
+        border-radius: 12px;
+        overflow: hidden;
+        background: #f6f8fb;
+        margin: 8px 0;
+      }
+
+      .code-block-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 8px 10px;
+        border-bottom: 1px solid #dbe5ef;
+        background: #eaf1f7;
+      }
+
+      .code-lang {
+        font-size: 12px;
+        font-weight: 700;
+        color: #2d4a5f;
+        text-transform: lowercase;
+      }
+
+      .code-copy-btn {
+        min-height: 28px;
+        padding: 0 10px;
+        border-radius: 8px;
+        border: 1px solid #c9d8e6;
+        background: #ffffff;
+        color: #2b475a;
+        cursor: pointer;
+        font-size: 12px;
+      }
+
+      .code-block pre {
+        margin: 0;
+        padding: 12px;
+        overflow: auto;
+        background: #0f1724 !important;
+      }
+
+      .code-block code {
+        font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+        font-size: 13px;
+        line-height: 1.55;
+        white-space: pre;
+      }
+
+      .cmd-keyword {
+        color: #ff7b72;
+        font-weight: 600;
+      }
+
+      .cmd-command {
+        color: #79c0ff;
+      }
+
+      .cmd-prompt {
+        color: #8b949e;
+      }
+
+      .cmd-flag {
+        color: #a5d6ff;
+      }
+
+      .cmd-var {
+        color: #d2a8ff;
+      }
+
+      .cmd-string {
+        color: #a5d6a7;
+      }
+
+      .cmd-comment {
+        color: #8b949e;
+        font-style: italic;
+      }
+
+      .markdown-content h1,
+      .markdown-content h2,
+      .markdown-content h3,
+      .markdown-content h4 {
+        margin: 10px 0 8px;
+        line-height: 1.3;
+      }
+
+      .markdown-content ul,
+      .markdown-content ol {
+        margin: 8px 0;
+        padding-left: 22px;
+      }
+
+      .markdown-content li {
+        margin: 4px 0;
+      }
+
+      .markdown-content blockquote {
+        margin: 8px 0;
+        padding: 6px 10px;
+        border-left: 3px solid #8ac8dd;
+        background: rgba(138, 200, 221, 0.12);
+        border-radius: 6px;
+      }
+
+      .markdown-content a {
+        color: #0e6f86;
+        text-decoration: none;
+      }
+
+      .markdown-content a:hover {
+        text-decoration: underline;
+      }
+
+      .markdown-content table {
+        border-collapse: collapse;
+        margin: 10px 0;
+        width: 100%;
+        font-size: 13px;
+      }
+
+      .markdown-content th,
+      .markdown-content td {
+        border: 1px solid #dbe5ef;
+        padding: 6px 8px;
+      }
+
+      .chat-input-panel {
+        border-top: var(--border);
+        padding: 10px 10px 5px;
+        box-shadow: 0 -2px 8px rgba(17, 24, 39, 0.03);
+      }
+
+      .chat-config-row {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+
+      .chat-config-row select {
+        flex: 1;
+        border: var(--border);
+        border-radius: 10px;
+        height: 38px;
+        padding: 0 10px;
+        background: var(--white);
+      }
+
+      .chat-input-wrap {
+        border: var(--border);
+        border-radius: 12px;
+        position: relative;
+        background: #ffffff;
+      }
+
+      .chat-input {
+        width: 100%;
+        border: none;
+        resize: vertical;
+        min-height: 86px;
+        max-height: 280px;
+        padding: 12px 138px 12px 12px;
+        border-radius: 12px;
+        outline: none;
+        font-family: var(--chat-font-family);
+        font-size: var(--chat-font-size);
+        color: var(--black);
+        background: transparent;
+      }
+
+      .chat-input::placeholder {
+        color: #6f7f8c;
+      }
+
+      .send-btn {
+        position: absolute;
+        right: 10px;
+        bottom: 10px;
+        width: 82px;
+      }
+
+      .attach-btn {
+        position: absolute;
+        right: 98px;
+        bottom: 10px;
+        min-width: 36px;
+        width: 36px;
+        height: 36px;
+        border-radius: 10px;
+        padding: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 16px;
+      }
+
+      .compose-attachments {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 0px;
+      }
+
+      .compose-attachment {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        max-width: 100%;
+        border: var(--border);
+        border-radius: 999px;
+        background: #f6fbff;
+        color: #2b475a;
+        padding: 4px 8px;
+        font-size: 12px;
+      }
+
+      .compose-attachment-text {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 260px;
+      }
+
+      .compose-attachment-remove {
+        border: none;
+        background: transparent;
+        color: #6f7f8c;
+        cursor: pointer;
+        font-size: 14px;
+        min-height: 0;
+        padding: 0 2px;
+      }
+
+      .message-attachments {
+        margin-top: 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .message-attachment-card {
+        border: 1px solid #d7e2eb;
+        border-radius: 10px;
+        background: #f8fbfe;
+        padding: 8px;
+      }
+
+      .message-attachment-meta {
+        font-size: 12px;
+        color: #647888;
+      }
+
+      .message-attachment-image {
+        display: block;
+        max-width: min(360px, 100%);
+        max-height: 280px;
+        border-radius: 8px;
+        margin-top: 6px;
+      }
+
+      .message-attachment-pre {
+        margin: 6px 0 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-size: 12px;
+        color: #2f4a5c;
+      }
+
+      .send-error {
+        min-height: 10px;
+        margin-top: 3px;
+        font-size: 10px;
+        color: rgb(80 121 33);
+      }
+
+      .settings-panel {
+        position: absolute;
+        top: 0;
+        right: 0;
+        width: min(420px, 100vw);
+        height: 100%;
+        background: #ffffff;
+        border-left: var(--border);
+        transform: translateX(100%);
+        transition: transform 0.22s ease;
+        z-index: 30;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .settings-panel.show {
+        transform: translateX(0);
+      }
+
+      .settings-mask {
+        position: absolute;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.36);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.2s ease;
+        z-index: 24;
+      }
+
+      .settings-mask.show {
+        opacity: 1;
+        pointer-events: auto;
+      }
+
+      .jump-mask {
+        position: absolute;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.36);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.2s ease;
+        z-index: 34;
+      }
+
+      .jump-mask.show {
+        opacity: 1;
+        pointer-events: auto;
+      }
+
+      .jump-panel {
+        position: absolute;
+        top: 0;
+        right: 0;
+        width: min(380px, 96vw);
+        height: 100%;
+        background: #ffffff;
+        border-left: var(--border);
+        transform: translateX(100%);
+        transition: transform 0.22s ease;
+        z-index: 36;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .jump-panel.show {
+        transform: translateX(0);
+      }
+
+      .jump-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        padding: 14px;
+        border-bottom: var(--border);
+      }
+
+      .jump-title {
+        font-size: calc(var(--ui-font-size) + 2px);
+        font-weight: 700;
+      }
+
+      .jump-subtitle {
+        margin-top: 4px;
+        font-size: calc(var(--ui-font-size) - 2px);
+        color: #6e7f8d;
+      }
+
+      .jump-list {
+        padding: 12px;
+        overflow: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .jump-item {
+        width: 100%;
+        text-align: left;
+        border: var(--border);
+        background: #f7fbff;
+        color: #2f4a5c;
+        border-radius: 10px;
+        padding: 8px 10px;
+        cursor: pointer;
+      }
+
+      .jump-item:hover {
+        background: #ecf7ff;
+      }
+
+      .jump-item-index {
+        font-size: 12px;
+        color: #6f8495;
+      }
+
+      .jump-item-text {
+        margin-top: 4px;
+        font-size: var(--ui-font-size);
+        line-height: 1.45;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+
+      .confirm-mask {
+        position: absolute;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.4);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.16s ease;
+        z-index: 48;
+      }
+
+      .confirm-mask.show {
+        opacity: 1;
+        pointer-events: auto;
+      }
+
+      .confirm-dialog {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -46%) scale(0.98);
+        width: min(420px, calc(100vw - 40px));
+        background: var(--white);
+        border: var(--border);
+        border-radius: 14px;
+        box-shadow: var(--shadow);
+        z-index: 50;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.16s ease, transform 0.16s ease;
+      }
+
+      .confirm-dialog.show {
+        opacity: 1;
+        pointer-events: auto;
+        transform: translate(-50%, -50%) scale(1);
+      }
+
+      .confirm-header {
+        padding: 14px 14px 8px;
+      }
+
+      .confirm-title {
+        font-size: calc(var(--ui-font-size) + 2px);
+        font-weight: 700;
+      }
+
+      .confirm-body {
+        padding: 0 14px 12px;
+        color: #5f7587;
+        font-size: var(--ui-font-size);
+        line-height: 1.45;
+      }
+
+      .confirm-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        padding: 0 14px 14px;
+      }
+
+      .image-preview-mask {
+        position: absolute;
+        inset: 0;
+        background: rgba(3, 10, 18, 0.72);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.16s ease;
+        z-index: 56;
+      }
+
+      .image-preview-mask.show {
+        opacity: 1;
+        pointer-events: auto;
+      }
+
+      .image-preview-dialog {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.16s ease;
+        z-index: 57;
+      }
+
+      .image-preview-dialog.show {
+        opacity: 1;
+        pointer-events: auto;
+      }
+
+      .image-preview-inner {
+        position: relative;
+        max-width: calc(100vw - 56px);
+        max-height: calc(100vh - 56px);
+      }
+
+      .image-preview-img {
+        display: block;
+        max-width: calc(100vw - 56px);
+        max-height: calc(100vh - 56px);
+        border-radius: 12px;
+        border: 1px solid rgba(149, 178, 203, 0.3);
+        box-shadow: 0 16px 56px rgba(2, 8, 16, 0.55);
+        background: #0b1420;
+      }
+
+      .image-preview-close {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        background: rgba(7, 17, 29, 0.55);
+        border-color: rgba(149, 178, 203, 0.35);
+      }
+
+      .settings-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 14px;
+        border-bottom: var(--border);
+      }
+
+      .settings-title {
+        font-size: calc(var(--ui-font-size) + 4px);
+        font-weight: 700;
+      }
+
+      .settings-tabs {
+        display: flex;
+        gap: 8px;
+        padding: 10px 14px 0;
+      }
+
+      .tab-btn {
+        border: var(--border);
+        border-radius: 999px;
+        background: #ffffff;
+        color: #456072;
+        font-size: calc(var(--ui-font-size) - 1px);
+        padding: 6px 12px;
+        cursor: pointer;
+      }
+
+      .tab-btn.active {
+        background: var(--second);
+        border-color: #a7dfee;
+        color: #0e6f86;
+      }
+
+      .settings-body {
+        padding: 14px;
+        overflow: auto;
+        display: none;
+      }
+
+      .settings-body.show {
+        display: block;
+      }
+
+      .list-card {
+        border: var(--border);
+        border-radius: 12px;
+        padding: 10px;
+        background: #fbfdff;
+        margin-bottom: 10px;
+      }
+
+      .list-title {
+        font-size: var(--ui-font-size);
+        font-weight: 700;
+      }
+
+      .list-sub {
+        margin-top: 6px;
+        font-size: calc(var(--ui-font-size) - 2px);
+        color: #687886;
+        line-height: 1.4;
+        word-break: break-all;
+      }
+
+      .list-actions {
+        margin-top: 8px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .default-tag {
+        display: inline-block;
+        font-size: 12px;
+        color: #0e6f86;
+        border: 1px solid #a7dfee;
+        background: #e9f8ff;
+        border-radius: 999px;
+        padding: 2px 8px;
+      }
+
+      .default-check {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        color: #476172;
+        cursor: pointer;
+      }
+
+      .default-check input {
+        width: 14px;
+        height: 14px;
+      }
+
+      .mini-btn {
+        min-height: 28px;
+        padding: 0 10px;
+        border-radius: 8px;
+        font-size: 12px;
+      }
+
+      .form-card {
+        border: var(--border);
+        border-radius: 12px;
+        padding: 10px;
+        background: #ffffff;
+      }
+
+      .form-title {
+        font-size: calc(var(--ui-font-size) - 1px);
+        font-weight: 700;
+        margin-bottom: 8px;
+      }
+
+      .form-card input,
+      .form-card textarea,
+      .form-card select {
+        width: 100%;
+        border: var(--border);
+        border-radius: 10px;
+        min-height: 38px;
+        padding: 8px 10px;
+        margin-bottom: 8px;
+        background: #fbfdff;
+      }
+
+      .form-card textarea {
+        min-height: 96px;
+        resize: vertical;
+      }
+
+      .retention-grid {
+        display: grid;
+        gap: 10px;
+        margin-bottom: 8px;
+      }
+
+      .retention-item label {
+        display: block;
+        font-size: 12px;
+        color: #5f7587;
+        margin: 0 0 6px;
+      }
+
+      .retention-item input {
+        margin-bottom: 0;
+      }
+
+      .theme-switch {
+        display: flex;
+        gap: 8px;
+      }
+
+      .theme-btn {
+        flex: 1;
+      }
+
+      .theme-btn.active {
+        background: var(--second);
+        border-color: #a7dfee;
+        color: #0e6f86;
+      }
+
+      .setting-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 8px;
+      }
+
+      .setting-row label {
+        font-size: 13px;
+        color: #476172;
+        white-space: nowrap;
+      }
+
+      .setting-control {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        justify-content: flex-end;
+      }
+
+      .setting-control select {
+        width: 190px;
+        border: var(--border);
+        border-radius: 8px;
+        min-height: 32px;
+        background: var(--white);
+        color: var(--black);
+      }
+
+      .setting-control input[type="range"] {
+        width: 160px;
+      }
+
+      .setting-value {
+        min-width: 42px;
+        font-size: 12px;
+        color: #5f7587;
+        text-align: right;
+      }
+
+      button {
+        border: none;
+        border-radius: 10px;
+        min-height: 36px;
+        padding: 0 12px;
+        background: var(--primary);
+        color: #ffffff;
+        cursor: pointer;
+        transition: transform 0.1s ease, opacity 0.15s ease;
+      }
+
+      button:hover {
+        opacity: 0.92;
+      }
+
+      button:active {
+        transform: translateY(1px);
+      }
+
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.55;
+      }
+
+      .ghost-btn {
+        background: var(--white);
+        color: #31495a;
+        border: var(--border);
+      }
+
+      .danger-btn {
+        background: var(--second);
+        color: #0e6f86;
+        border: 1px solid #a7dfee;
+      }
+
+      .icon-btn {
+        min-width: 36px;
+        width: 36px;
+        height: 36px;
+        padding: 0;
+        border-radius: 10px;
+        background: var(--white);
+        color: #2f4858;
+        border: var(--border);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        line-height: 1;
+      }
+
+      .icon-btn svg {
+        width: 18px;
+        height: 18px;
+        stroke: currentColor;
+        stroke-width: 1.9;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        fill: none;
+      }
+
+      body.theme-dark {
+        --white: #111d2a;
+        --black: #dce6ef;
+        --gray: #0b1118;
+        --second: #17283a;
+        --hover: #1d2f43;
+        --bar: rgba(255, 255, 255, 0.22);
+        --border: 1px solid #2f4153;
+        --shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+        --card-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        background: radial-gradient(circle at 0% 0%, #162433 0%, #0f1722 50%, #0b1118 100%);
+      }
+
+      body.theme-dark #appShell,
+      body.theme-dark .settings-panel,
+      body.theme-dark .auth-card,
+      body.theme-dark .jump-panel {
+        background: #0f1722;
+      }
+
+      body.theme-dark #appShell {
+        margin: 0 auto;
+      }
+
+      body.theme-dark .main {
+        background: linear-gradient(180deg, #111927 0%, #0d1520 100%);
+      }
+
+      body.theme-dark .chat-item,
+      body.theme-dark .list-card,
+      body.theme-dark .form-card,
+      body.theme-dark .chat-input-wrap,
+      body.theme-dark .tab-btn,
+      body.theme-dark .icon-btn,
+      body.theme-dark .ghost-btn,
+      body.theme-dark .jump-item {
+        background: #152233;
+        border-color: #2f4153;
+        color: #dce6ef;
+      }
+
+      body.theme-dark .chat-item:hover {
+        background: #1c2b3c;
+      }
+
+      body.theme-dark .sidebar-search {
+        background: #152233;
+        border-color: #2f4153;
+        color: #93aabd;
+      }
+
+      body.theme-dark .sidebar-search-input::placeholder {
+        color: #8ea3b5;
+      }
+
+      body.theme-dark .sidebar-search-clear {
+        color: #91a8ba;
+      }
+
+      body.theme-dark .sidebar-search-clear:hover {
+        background: rgba(74, 150, 196, 0.2);
+        border-color: rgba(110, 169, 205, 0.5);
+        color: #b7e8ff;
+      }
+
+      body.theme-dark .sidebar-search-counter {
+        color: #8ca2b4;
+      }
+
+      body.theme-dark .sidebar-search-nav-btn {
+        color: #91a8ba;
+      }
+
+      body.theme-dark .sidebar-search-nav-btn:hover {
+        background: rgba(74, 150, 196, 0.2);
+        border-color: rgba(110, 169, 205, 0.5);
+        color: #b7e8ff;
+      }
+
+      body.theme-dark .message-row.search-hit-active .message-bubble {
+        box-shadow: 0 0 0 2px rgba(110, 169, 205, 0.45);
+      }
+
+      body.theme-dark .search-highlight {
+        color: inherit;
+        border-radius: 4px;
+        padding: 0 1px;
+        background: rgb(237 78 11);
+      }
+
+      body.theme-dark .search-highlight-active {
+        background: rgb(237 78 11);
+        box-shadow: 0 0 0 6px rgb(255 0 0 / 42%);
+      }
+
+      body.theme-dark .jump-item:hover {
+        background: #1d2f43;
+      }
+
+      body.theme-dark .confirm-body {
+        color: #9fb2c3;
+      }
+
+      body.theme-dark .tab-btn.active,
+      body.theme-dark .theme-btn.active {
+        background: #1a3348;
+        border-color: #3d6a89;
+        color: #9ddff1;
+      }
+
+      body.theme-dark .message-bubble {
+        background: #122130;
+        border-color: #2c4154;
+        color: #e2edf7;
+      }
+
+      body.theme-dark .message-row.user .message-bubble {
+        background: #17354a;
+      }
+
+      body.theme-dark .message-action-btn {
+        background: #1a2a3a;
+        border-color: #365067;
+        color: #a9c2d4;
+      }
+
+      body.theme-dark .message-action-btn:hover,
+      body.theme-dark .message-action-btn.is-copied {
+        background: rgba(74, 150, 196, 0.2);
+        border-color: rgba(110, 169, 205, 0.5);
+        color: #b7e8ff;
+      }
+
+      body.theme-dark .auth-card input,
+      body.theme-dark .form-card input,
+      body.theme-dark .form-card textarea,
+      body.theme-dark .form-card select,
+      body.theme-dark .chat-config-row select {
+        background: #0f1722;
+        border-color: #2f4153;
+        color: #dce6ef;
+      }
+
+      body.theme-dark .chat-input {
+        color: #e6eff8;
+      }
+
+      body.theme-dark .chat-input::placeholder {
+        color: #95a9ba;
+      }
+
+      body.theme-dark .compose-attachment {
+        background: #162433;
+        border-color: #2f4153;
+        color: #d5e3ee;
+      }
+
+      body.theme-dark .compose-attachment-remove {
+        color: #a8bac9;
+      }
+
+      body.theme-dark .message-attachment-card {
+        background: #162433;
+        border-color: #30465a;
+      }
+
+      body.theme-dark .message-attachment-meta {
+        color: #9fb2c3;
+      }
+
+      body.theme-dark .message-attachment-pre {
+        color: #d8e5f0;
+      }
+
+      body.theme-dark .window-sub-title,
+      body.theme-dark .chat-item-foot,
+      body.theme-dark .list-sub,
+      body.theme-dark .auth-subtitle,
+      body.theme-dark .message-meta,
+      body.theme-dark .jump-subtitle,
+      body.theme-dark .jump-item-index {
+        color: #9fb2c3;
+      }
+
+      body.theme-dark .setting-row label,
+      body.theme-dark .setting-value {
+        color: #9fb2c3;
+      }
+
+      body.theme-dark .retention-item label {
+        color: #9fb2c3;
+      }
+
+      body.theme-dark .setting-control select {
+        color: #d5e3ee;
+      }
+
+      body.theme-dark .setting-control select option {
+        background: #152233;
+        color: #d5e3ee;
+      }
+
+      body.theme-dark .code-block {
+        border-color: #2f4153;
+        background: #101824;
+      }
+
+      body.theme-dark .code-block-head {
+        background: #162433;
+        border-color: #2f4153;
+      }
+
+      body.theme-dark .code-copy-btn {
+        background: #0f1722;
+        color: #dce6ef;
+        border-color: #35506a;
+      }
+
+      body.theme-dark .inline-code,
+      body.theme-dark .markdown-content :not(pre) > code {
+        background: #28465d;
+        border-color: #47718f;
+        color: #f2f8ff;
+      }
+
+      body.theme-dark button {
+        background: #20364b;
+        color: #dce6ef;
+        border: 1px solid #35506a;
+      }
+
+      body.theme-dark .send-btn {
+        background: #264b66;
+        border-color: #3d6786;
+        color: #e7f4ff;
+      }
+
+      body.theme-dark .send-btn:hover {
+        background: #2e5a7a;
+      }
+
+      body.theme-dark .danger-btn {
+        background: #1a3348;
+        border-color: #3d6a89;
+        color: #9ddff1;
+      }
+
+      body.theme-dark .danger-btn:hover {
+        background: #21405a;
+      }
+
+      .mobile-only {
+        display: none;
+      }
+
+      .sidebar-mask {
+        display: none;
+      }
+
+      ::-webkit-scrollbar {
+        width: 10px;
+        height: 10px;
+      }
+
+      ::-webkit-scrollbar-thumb {
+        background: var(--bar);
+        border-radius: 20px;
+        border: 2px solid transparent;
+        background-clip: content-box;
+      }
+
+      @keyframes fadeUp {
+        from {
+          opacity: 0;
+          transform: translateY(4px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @keyframes typingPulse {
+        0%,
+        80%,
+        100% {
+          opacity: 0.3;
+          transform: translateY(0);
+        }
+        40% {
+          opacity: 1;
+          transform: translateY(-1px);
+        }
+      }
+
+      @keyframes cursorBlink {
+        0%,
+        50% {
+          opacity: 1;
+        }
+        51%,
+        100% {
+          opacity: 0;
+        }
+      }
+
+      @keyframes jumpFlash {
+        0% {
+          box-shadow: 0 0 0 0 rgba(29, 147, 171, 0.55);
+        }
+        100% {
+          box-shadow: 0 0 0 2px rgba(29, 147, 171, 0);
+        }
+      }
+
+      @media (max-width: 900px) {
+        #appShell {
+          width: 100vw;
+          height: 100vh;
+          margin: 0;
+          border-radius: 0;
+          border: none;
+        }
+
+        .mobile-only {
+          display: inline-flex;
+        }
+
+        .sidebar {
+          position: absolute;
+          left: 0;
+          top: 0;
+          z-index: 20;
+          width: min(320px, 84vw);
+          transform: translateX(-100%);
+          transition: transform 0.2s ease;
+          box-shadow: 6px 0 18px rgba(15, 23, 42, 0.1);
+        }
+
+        .sidebar.show {
+          transform: translateX(0);
+        }
+
+        .sidebar-mask {
+          position: absolute;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.36);
+          z-index: 15;
+          opacity: 0;
+          pointer-events: none;
+          transition: opacity 0.2s ease;
+          display: block;
+        }
+
+        .sidebar-mask.show {
+          opacity: 1;
+          pointer-events: auto;
+        }
+
+        .main {
+          inset: 0;
+        }
+
+        .window-main-title {
+          max-width: min(220px, 48vw);
+          font-size: 18px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="login" class="auth-screen" style="display: none;">
+      <div id="loginPanel" class="auth-card">
+        <h1 id="authAppTitle" class="auth-title">Chat</h1>
+        <p id="authAppSubtitle" class="auth-subtitle">Build your own AI assistant</p>
+        <input id="username" type="text" placeholder="用户名（默认 admin）" value="admin" />
+        <input id="password" type="password" placeholder="登录密码" />
+        <button onclick="login()">登录</button>
+        <div id="loginError" class="auth-error"></div>
+      </div>
+      <div id="setupPanel" class="auth-card" style="display: none;">
+        <h1 class="auth-title">首次初始化</h1>
+        <p class="auth-subtitle">首次访问请完成初始化，系统会创建管理员账号：admin</p>
+        <input id="setupAppTitle" type="text" placeholder="应用标题（默认 My Chat）" />
+        <input id="setupAppSubtitle" type="text" placeholder="应用副标题（默认 Build your own AI assistant）" />
+        <input id="setupAdminPassword" type="password" placeholder="管理员密码" />
+        <input id="setupAdminPasswordConfirm" type="password" placeholder="确认管理员密码" />
+        <input id="setupModelName" type="text" placeholder="模型名（可选，默认 gpt-5.5）" />
+        <input id="setupModelUrl" type="text" placeholder="base_api 例如：http://0.0.0.0:8080/v1/responses" />
+        <input id="setupModelKey" type="text" placeholder="api_key" />
+        <button onclick="initApp()">完成初始化</button>
+        <div id="setupError" class="auth-error"></div>
+      </div>
+    </div>
+
+    <div id="appShell">
+      <aside id="sidebar" class="sidebar">
+        <div class="sidebar-header">
+          <div>
+            <div id="sidebarAppTitle" class="sidebar-title">Chat</div>
+            <div id="sidebarAppSubtitle" class="sidebar-subtitle">Build your own AI assistant</div>
+          </div>
+          <button class="icon-btn mobile-only" onclick="toggleSidebar(false)" title="关闭">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
+        </div>
+        <div class="sidebar-actions">
+          <button class="ghost-btn" style="width: 100%;" onclick="newChat()">+ 新建对话</button>
+          <div class="sidebar-search">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M11 5a6 6 0 1 1 0 12 6 6 0 0 1 0-12ZM16 16l3 3" />
+            </svg>
+            <input id="chatSearchInput" class="sidebar-search-input" type="search" placeholder="搜索消息..." autocomplete="off" />
+            <div id="chatSearchTools" class="sidebar-search-tools">
+              <span id="chatSearchCounter" class="sidebar-search-counter">0/0</span>
+              <button
+                id="chatSearchPrevBtn"
+                class="sidebar-search-nav-btn"
+                type="button"
+                onclick="jumpToSearchResult(-1)"
+                aria-label="上一个搜索结果"
+                title="上一个搜索结果"
+                disabled
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 17V7M8 11l4-4 4 4" />
+                </svg>
+              </button>
+              <button
+                id="chatSearchNextBtn"
+                class="sidebar-search-nav-btn"
+                type="button"
+                onclick="jumpToSearchResult(1)"
+                aria-label="下一个搜索结果"
+                title="下一个搜索结果"
+                disabled
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 7v10M8 13l4 4 4-4" />
+                </svg>
+              </button>
+              <button
+                id="chatSearchClearBtn"
+                class="sidebar-search-clear"
+                type="button"
+                onclick="clearChatSearch()"
+                aria-label="清空搜索"
+                title="清空搜索"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M7 7l10 10M17 7L7 17" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+        <div id="chats" class="chat-list"></div>
+        <div class="sidebar-tail">
+          <button class="danger-btn" style="width: 100%;" onclick="logout()">退出登录</button>
+        </div>
+      </aside>
+      <div id="sidebarMask" class="sidebar-mask" onclick="toggleSidebar(false)"></div>
+
+      <main class="main">
+        <header class="window-header">
+          <div class="window-header-left">
+            <button class="icon-btn mobile-only" onclick="toggleSidebar(true)" title="菜单">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M5 7h14M5 12h14M5 17h14" />
+              </svg>
+            </button>
+            <div>
+              <div id="chatTitleMain" class="window-main-title">消息</div>
+              <div id="chatTitleSub" class="window-sub-title">请先创建一个会话</div>
+            </div>
+          </div>
+          <div class="window-actions">
+            <button class="icon-btn" onclick="openSettings('general')" title="设置" aria-label="设置">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" />
+                <path d="M19 12a7.1 7.1 0 0 0-.07-.95l1.94-1.5-1.9-3.29-2.27.75a7.05 7.05 0 0 0-1.63-.95L14.66 3h-3.8l-.41 2.06c-.57.21-1.12.53-1.63.95l-2.27-.75-1.9 3.29 1.94 1.5A7.1 7.1 0 0 0 5 12c0 .32.02.63.07.95l-1.94 1.5 1.9 3.29 2.27-.75c.51.42 1.06.74 1.63.95l.41 2.06h3.8l.41-2.06c.57-.21 1.12-.53 1.63-.95l2.27.75 1.9-3.29-1.94-1.5c.05-.32.07-.63.07-.95Z" />
+              </svg>
+            </button>
+          </div>
+        </header>
+        <section id="messages" class="chat-body"></section>
+        <footer class="chat-input-panel">
+          <div class="chat-config-row">
+            <select id="chatModel"></select>
+            <select id="chatAgent"></select>
+            <select id="chatReasoning"></select>
+          </div>
+          <div class="chat-input-wrap">
+            <input id="filePicker" type="file" multiple style="display: none;" />
+            <textarea
+              id="messageText"
+              class="chat-input"
+              placeholder="输入消息，Enter 发送，Alt+Enter 换行"
+            ></textarea>
+            <button id="attachButton" class="ghost-btn attach-btn" type="button" onclick="openFilePicker()" title="Attach">
+              +
+            </button>
+            <button id="sendButton" class="send-btn" onclick="sendMessage()">发送</button>
+          </div>
+          <div id="composeAttachments" class="compose-attachments"></div>
+          <div id="sendError" class="send-error"></div>
+        </footer>
+      </main>
+
+      <div id="settingsMask" class="settings-mask" onclick="closeSettings()"></div>
+      <aside id="settingsPanel" class="settings-panel">
+        <div class="settings-header">
+          <div class="settings-title">设置</div>
+          <button class="icon-btn" onclick="closeSettings()" title="关闭" aria-label="关闭">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
+        </div>
+        <div class="settings-tabs">
+          <button id="tabGeneralBtn" class="tab-btn active" onclick="switchSettingsTab('general')">
+            偏好
+          </button>
+          <button id="tabModelsBtn" class="tab-btn" onclick="switchSettingsTab('models')">
+            模型
+          </button>
+          <button id="tabAgentsBtn" class="tab-btn" onclick="switchSettingsTab('agents')">
+            Agent
+          </button>
+          <button id="tabAdminBtn" class="tab-btn" onclick="switchSettingsTab('admin')" style="display: none;">
+            管理
+          </button>
+        </div>
+        <div id="settingsGeneral" class="settings-body show">
+          <div class="form-card" style="margin-bottom: 10px;">
+            <div class="form-title">外观主题</div>
+            <div class="theme-switch">
+              <button id="themeLightBtn" class="ghost-btn theme-btn" onclick="setTheme('light')">
+                浅色
+              </button>
+              <button id="themeDarkBtn" class="ghost-btn theme-btn" onclick="setTheme('dark')">
+                深色
+              </button>
+            </div>
+          </div>
+          <div class="form-card" style="margin-bottom: 10px;">
+            <div class="form-title">字体设置</div>
+            <div class="setting-row">
+              <label for="uiFontFamilySelect">UI 字体</label>
+              <div class="setting-control">
+                <select id="uiFontFamilySelect" onchange="onFontSettingChange()">
+                  <option value="noto">Noto Sans</option>
+                  <option value="system">System UI</option>
+                  <option value="pingfang">苹方 (PingFang SC)</option>
+                  <option value="yahei">微软雅黑 (Microsoft YaHei)</option>
+                  <option value="sourcehan">思源黑体 (Source Han Sans SC)</option>
+                  <option value="songti">宋体 (Songti/SimSun)</option>
+                  <option value="kaiti">楷体 (KaiTi)</option>
+                  <option value="serif">Serif</option>
+                  <option value="mono">Monospace</option>
+                </select>
+              </div>
+            </div>
+            <div class="setting-row">
+              <label for="uiFontSizeRange">UI 字号</label>
+              <div class="setting-control">
+                <input id="uiFontSizeRange" type="range" min="6" max="36" step="1" oninput="onFontSettingChange()" />
+                <span id="uiFontSizeValue" class="setting-value">14px</span>
+              </div>
+            </div>
+            <div class="setting-row">
+              <label for="chatFontFamilySelect">对话字体</label>
+              <div class="setting-control">
+                <select id="chatFontFamilySelect" onchange="onFontSettingChange()">
+                  <option value="noto">Noto Sans</option>
+                  <option value="system">System UI</option>
+                  <option value="pingfang">苹方 (PingFang SC)</option>
+                  <option value="yahei">微软雅黑 (Microsoft YaHei)</option>
+                  <option value="sourcehan">思源黑体 (Source Han Sans SC)</option>
+                  <option value="songti">宋体 (Songti/SimSun)</option>
+                  <option value="kaiti">楷体 (KaiTi)</option>
+                  <option value="serif">Serif</option>
+                  <option value="mono">Monospace</option>
+                </select>
+              </div>
+            </div>
+            <div class="setting-row">
+              <label for="chatFontSizeRange">对话字号</label>
+              <div class="setting-control">
+                <input id="chatFontSizeRange" type="range" min="6" max="36" step="1" oninput="onFontSettingChange()" />
+                <span id="chatFontSizeValue" class="setting-value">14px</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div id="settingsModels" class="settings-body">
+          <div id="models"></div>
+          <div id="modelAdminSection">
+            <div class="form-card">
+              <div class="form-title">新增/更新模型（管理员）</div>
+              <input id="modelName" placeholder="模型名，例如 gpt-5.5" />
+              <input id="modelUrl" placeholder="base_url（例如：http://host:port/v1/responses）" />
+              <input id="modelKey" placeholder="api_key" />
+              <button style="width: 100%;" onclick="saveModel()">保存模型</button>
+            </div>
+          </div>
+          <div id="modelReadonlyHint" class="list-card" style="display: none; color: #6b7c88;">
+            普通用户可查看模型并设置默认模型，不显示请求地址与密钥，也不能删除模型。
+          </div>
+        </div>
+        <div id="settingsAgents" class="settings-body">
+          <div id="agents"></div>
+          <div class="form-card">
+            <div id="agentFormTitle" class="form-title">新增 Agent</div>
+            <input id="agentName" placeholder="Agent 名称" />
+            <textarea id="agentPrompt" placeholder="系统提示词"></textarea>
+            <button id="saveAgentBtn" style="width: 100%;" onclick="saveAgent()">保存 Agent</button>
+            <button
+              id="cancelEditAgentBtn"
+              class="ghost-btn"
+              style="width: 100%; margin-top: 8px; display: none;"
+              onclick="resetAgentForm()"
+            >
+              取消编辑
+            </button>
+          </div>
+        </div>
+        <div id="settingsAdmin" class="settings-body">
+          <div class="form-card" style="margin-bottom: 10px;">
+            <div class="form-title">应用信息</div>
+            <input id="appDisplayTitle" placeholder="应用标题" />
+            <input id="appDisplaySubtitle" placeholder="应用副标题" />
+          </div>
+          <div class="form-card" style="margin-bottom: 10px;">
+            <div class="form-title">消息保留策略</div>
+            <div class="retention-grid">
+              <div class="retention-item">
+                <label for="messageTextTtlHours">纯文本保存小时数</label>
+                <input id="messageTextTtlHours" type="number" min="0" step="1" placeholder="例如 72（0 表示不自动删除）" />
+              </div>
+              <div class="retention-item">
+                <label for="messageMediaTtlHours">图片/文件保存小时数</label>
+                <input id="messageMediaTtlHours" type="number" min="0" step="1" placeholder="例如 24（0 表示不自动删除）" />
+              </div>
+            </div>
+            <button style="width: 100%;" onclick="saveAppSettings()">保存应用设置</button>
+            <button class="danger-btn" style="width: 100%; margin-top: 8px;" onclick="purgeAllChats()">
+              删除全部会话数据
+            </button>
+          </div>
+          <div class="form-card" style="margin-bottom: 10px;">
+            <div class="form-title">账号管理（仅管理员）</div>
+            <div id="usersList"></div>
+          </div>
+          <div class="form-card">
+            <div class="form-title">新增账号</div>
+            <input id="newUsername" placeholder="用户名" />
+            <input id="newUserPassword" type="password" placeholder="初始密码" />
+            <select id="newUserRole">
+              <option value="user">普通用户</option>
+              <option value="admin">管理员</option>
+            </select>
+            <button style="width: 100%;" onclick="createUser()">创建账号</button>
+            <div id="adminUserError" class="send-error"></div>
+          </div>
+        </div>
+      </aside>
+
+      <div id="jumpMask" class="jump-mask" onclick="closeMessageIndex()"></div>
+      <aside id="jumpPanel" class="jump-panel">
+        <div class="jump-header">
+          <div>
+            <div class="jump-title">消息目录</div>
+            <div id="jumpSubtitle" class="jump-subtitle">点击可跳转到对应消息</div>
+          </div>
+          <button class="icon-btn" onclick="closeMessageIndex()" title="关闭" aria-label="关闭">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
+        </div>
+        <div id="jumpList" class="jump-list"></div>
+      </aside>
+
+      <div id="confirmMask" class="confirm-mask" onclick="closeConfirmDialog(false)"></div>
+      <div id="confirmDialog" class="confirm-dialog" role="dialog" aria-modal="true">
+        <div class="confirm-header">
+          <div id="confirmTitle" class="confirm-title">请确认</div>
+        </div>
+        <div id="confirmBody" class="confirm-body">确认执行此操作？</div>
+        <div class="confirm-actions">
+          <button class="ghost-btn" onclick="closeConfirmDialog(false)">取消</button>
+          <button id="confirmOkBtn" onclick="closeConfirmDialog(true)">确定</button>
+        </div>
+      </div>
+
+      <div id="imagePreviewMask" class="image-preview-mask" onclick="closeImagePreview()"></div>
+      <div id="imagePreviewDialog" class="image-preview-dialog" onclick="closeImagePreview()">
+        <div class="image-preview-inner" onclick="event.stopPropagation()">
+          <button class="icon-btn image-preview-close" type="button" onclick="closeImagePreview()" aria-label="关闭预览" title="关闭预览">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
+          <img id="imagePreviewImg" class="image-preview-img" alt="图片预览" />
+        </div>
+      </div>
+    </div>
+
+    <script>
+      let state = null;
+      let selectedChatId = null;
+      let sending = false;
+      let settingsTab = "general";
+      let markdownRenderer = null;
+      let pendingReply = null;
+      let typingTimer = null;
+      let streamAbortController = null;
+      let pendingAttachments = [];
+      let currentTheme = "light";
+      let editingAgentId = null;
+      let authStatusCache = null;
+      let messageIndexChatId = null;
+      let confirmResolver = null;
+      let imagePreviewOpen = false;
+      let chatSearchQuery = "";
+      let chatSearchTimer = null;
+      let chatSearchIndex = new Map();
+      let chatSearchMessageIndex = new Map();
+      let chatSearchMessageResults = [];
+      let chatSearchResultCursor = -1;
+      let chatSearchActiveMessageKey = "";
+      let chatSearchActiveResultKey = "";
+      const CHAT_SEARCH_DEBOUNCE_MS = 180;
+      const REASONING_EFFORT_OPTIONS = [
+        { value: "", label: "推理等级" },
+        { value: "low", label: "低" },
+        { value: "medium", label: "中" },
+        { value: "high", label: "高" },
+        { value: "xhigh", label: "超高" },
+      ];
+      const AUTO_SCROLL_BOTTOM_THRESHOLD = 64;
+      let shouldAutoScroll = true;
+      let messageScrollListenerBound = false;
+      const FONT_FAMILY_MAP = {
+        noto: '"Noto Sans", "PingFang SC", "Helvetica Neue", Arial, sans-serif',
+        system: '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif',
+        pingfang: '"PingFang SC", "Helvetica Neue", Arial, sans-serif',
+        yahei: '"Microsoft YaHei", "微软雅黑", "PingFang SC", Arial, sans-serif',
+        sourcehan: '"Source Han Sans SC", "Noto Sans CJK SC", "PingFang SC", sans-serif',
+        songti: '"Songti SC", "STSong", "SimSun", "宋体", serif',
+        kaiti: '"Kaiti SC", "KaiTi", "楷体", "STKaiti", serif',
+        serif: '"Noto Serif SC", "Songti SC", "Times New Roman", serif',
+        mono: '"Cascadia Mono", "Consolas", "Menlo", monospace',
+      };
+      const DEFAULT_FONT_SETTINGS = {
+        uiFamily: "noto",
+        uiSize: 14,
+        chatFamily: "noto",
+        chatSize: 14,
+      };
+      let fontSettings = { ...DEFAULT_FONT_SETTINGS };
+
+      async function api(path, options = {}) {
+        const res = await fetch(path, {
+          credentials: "include",
+          headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+          ...options,
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          let message = text || "request failed";
+          try {
+            const payload = JSON.parse(text);
+            if (typeof payload?.detail === "string" && payload.detail.trim()) {
+              message = payload.detail;
+            } else if (
+              typeof payload?.error?.message === "string" &&
+              payload.error.message.trim()
+            ) {
+              message = payload.error.message;
+            }
+          } catch (_) {}
+          throw new Error(message);
+        }
+        return res.json();
+      }
+
+      function escapeHtml(str) {
+        return (str || "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;");
+      }
+
+      function escapeAttr(str) {
+        return String(str || "")
+          .replaceAll("&", "&amp;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#39;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;");
+      }
+
+      function maskApiKeyForDisplay(apiKey) {
+        const raw = String(apiKey || "").trim();
+        if (!raw) return "(未配置 api_key)";
+        if (raw.includes("*")) return raw;
+        const n = raw.length;
+        if (n <= 12) {
+          return "*".repeat(n);
+        }
+        let keep = 0;
+        if (n <= 17) keep = 2;
+        else if (n <= 24) keep = 4;
+        else keep = 6;
+        const hiddenLen = Math.max(0, n - keep * 2);
+        return `${raw.slice(0, keep)}${"*".repeat(hiddenLen)}${raw.slice(n - keep)}`;
+      }
+
+      function displayModelMaskedKey(model) {
+        const backendMasked = String(model?.api_key_masked || "").trim();
+        if (backendMasked) return backendMasked;
+        return maskApiKeyForDisplay(model?.api_key || "");
+      }
+
+      function normalizeSearchText(value) {
+        return String(value || "")
+          .toLowerCase()
+          .replace(/\s+/g, " ")
+          .trim();
+      }
+
+      function normalizeReasoningEffort(value) {
+        const effort = String(value || "")
+          .trim()
+          .toLowerCase();
+        if (!effort) return "";
+        return ["low", "medium", "high", "xhigh"].includes(effort) ? effort : "";
+      }
+
+      function buildAttachmentSearchText(att) {
+        let text = `${att?.name || ""} `;
+        if (typeof att?.text_content === "string" && att.text_content) {
+          text += `${att.text_content.slice(0, 1800)} `;
+        }
+        return text;
+      }
+
+      function buildMessageSearchText(msg) {
+        const MAX_SEARCH_CHARS_PER_MESSAGE = 5200;
+        let text = `${msg?.content || ""} `;
+        const attachments = Array.isArray(msg?.attachments) ? msg.attachments : [];
+        for (const att of attachments) {
+          if (text.length >= MAX_SEARCH_CHARS_PER_MESSAGE) break;
+          text += buildAttachmentSearchText(att);
+        }
+        if (text.length > MAX_SEARCH_CHARS_PER_MESSAGE) {
+          text = text.slice(0, MAX_SEARCH_CHARS_PER_MESSAGE);
+        }
+        return normalizeSearchText(text);
+      }
+
+      function buildChatSearchIndex() {
+        const chats = Array.isArray(state?.chats) ? state.chats : [];
+        const nextChatIndex = new Map();
+        const nextMessageIndex = new Map();
+        const MAX_SEARCH_CHARS_PER_CHAT = 26000;
+
+        for (const chat of chats) {
+          let raw = `${chat?.title || ""} `;
+          const messages = Array.isArray(chat?.messages) ? chat.messages : [];
+
+          for (let msgIdx = 0; msgIdx < messages.length; msgIdx += 1) {
+            const msg = messages[msgIdx];
+            const messageSearchText = buildMessageSearchText(msg);
+            nextMessageIndex.set(`${chat.id}:${msgIdx}`, messageSearchText);
+            if (raw.length >= MAX_SEARCH_CHARS_PER_CHAT) break;
+            raw += `${messageSearchText} `;
+          }
+
+          if (raw.length > MAX_SEARCH_CHARS_PER_CHAT) {
+            raw = raw.slice(0, MAX_SEARCH_CHARS_PER_CHAT);
+          }
+          nextChatIndex.set(chat.id, normalizeSearchText(raw));
+        }
+
+        chatSearchIndex = nextChatIndex;
+        chatSearchMessageIndex = nextMessageIndex;
+      }
+
+      function collectMessageSearchResults(query) {
+        const chats = Array.isArray(state?.chats) ? state.chats : [];
+        if (!query) return [];
+        const results = [];
+        for (const chat of chats) {
+          const messages = Array.isArray(chat?.messages) ? chat.messages : [];
+          for (let msgIdx = 0; msgIdx < messages.length; msgIdx += 1) {
+            const key = `${chat.id}:${msgIdx}`;
+            const searchable = chatSearchMessageIndex.get(key) || "";
+            const hitCount = countOccurrences(searchable, query);
+            for (let occ = 0; occ < hitCount; occ += 1) {
+              results.push({
+                id: `${key}:${occ}`,
+                key,
+                chatId: chat.id,
+                msgIndex: msgIdx,
+                occurrence: occ,
+              });
+            }
+          }
+        }
+        return results;
+      }
+
+      function refreshChatSearchResults() {
+        const normalizedQuery = normalizeSearchText(chatSearchQuery);
+        if (!normalizedQuery) {
+          chatSearchMessageResults = [];
+          chatSearchResultCursor = -1;
+          chatSearchActiveMessageKey = "";
+          chatSearchActiveResultKey = "";
+          return;
+        }
+        const nextResults = collectMessageSearchResults(normalizedQuery);
+        let nextCursor = -1;
+        if (chatSearchActiveResultKey) {
+          nextCursor = nextResults.findIndex((item) => item.id === chatSearchActiveResultKey);
+        }
+        if (nextCursor < 0 && nextResults.length) {
+          nextCursor = nextResults.findIndex((item) => item.chatId === selectedChatId);
+        }
+        if (nextCursor < 0 && nextResults.length) {
+          nextCursor = 0;
+        }
+        chatSearchMessageResults = nextResults;
+        chatSearchResultCursor = nextCursor;
+        chatSearchActiveMessageKey = nextCursor >= 0 ? nextResults[nextCursor].key : "";
+        chatSearchActiveResultKey = nextCursor >= 0 ? nextResults[nextCursor].id : "";
+      }
+
+      function updateChatSearchClearButton() {
+        const clearBtn = document.getElementById("chatSearchClearBtn");
+        if (!clearBtn) return;
+        clearBtn.disabled = !Boolean(normalizeSearchText(chatSearchQuery));
+      }
+
+      function updateChatSearchNavigator() {
+        const total = chatSearchMessageResults.length;
+        const toolsEl = document.getElementById("chatSearchTools");
+        const prevBtn = document.getElementById("chatSearchPrevBtn");
+        const nextBtn = document.getElementById("chatSearchNextBtn");
+        const counterEl = document.getElementById("chatSearchCounter");
+        const hasResults = total > 0;
+        if (toolsEl) toolsEl.classList.toggle("show", hasResults);
+        if (prevBtn) prevBtn.disabled = !hasResults;
+        if (nextBtn) nextBtn.disabled = !hasResults;
+        if (counterEl) {
+          if (hasResults) {
+            const cursor = Math.max(0, chatSearchResultCursor);
+            counterEl.textContent = `${cursor + 1}/${total}`;
+          } else {
+            counterEl.textContent = "0/0";
+          }
+        }
+      }
+
+      function syncChatSearchInput() {
+        const input = document.getElementById("chatSearchInput");
+        if (!input) return;
+        if (input.value !== chatSearchQuery) {
+          input.value = chatSearchQuery;
+        }
+        updateChatSearchClearButton();
+        updateChatSearchNavigator();
+      }
+
+      function focusMessageSearchResult(result) {
+        if (!result) return;
+        chatSearchActiveMessageKey = result.key;
+        chatSearchActiveResultKey = result.id || "";
+        const locate = () => {
+          const msgEl = document.getElementById("messages");
+          const row = msgEl?.querySelector(`.message-row[data-msg-idx="${result.msgIndex}"]`);
+          if (!row) return;
+          const marks = row.querySelectorAll(".search-highlight");
+          const targetMark =
+            marks[Math.max(0, Number(result.occurrence || 0))] || marks[0] || row;
+          msgEl?.querySelectorAll(".search-highlight-active").forEach((node) => {
+            node.classList.remove("search-highlight-active");
+          });
+          if (targetMark instanceof HTMLElement && targetMark.classList.contains("search-highlight")) {
+            targetMark.classList.add("search-highlight-active");
+          }
+          targetMark.scrollIntoView({ behavior: "smooth", block: "center" });
+          row.classList.add("message-jump-highlight");
+          window.setTimeout(() => {
+            row.classList.remove("message-jump-highlight");
+          }, 900);
+        };
+        if (selectedChatId !== result.chatId) {
+          selectedChatId = result.chatId;
+          shouldAutoScroll = false;
+          if (messageIndexChatId && messageIndexChatId !== result.chatId) {
+            closeMessageIndex();
+          }
+          render();
+          window.setTimeout(locate, 0);
+          return;
+        }
+        shouldAutoScroll = false;
+        renderMessages();
+        window.setTimeout(locate, 0);
+      }
+
+      function jumpToSearchResult(step) {
+        const total = chatSearchMessageResults.length;
+        if (!total) return;
+        if (chatSearchResultCursor < 0 || chatSearchResultCursor >= total) {
+          chatSearchResultCursor = step < 0 ? total - 1 : 0;
+        } else {
+          chatSearchResultCursor = (chatSearchResultCursor + step + total) % total;
+        }
+        const target = chatSearchMessageResults[chatSearchResultCursor];
+        chatSearchActiveMessageKey = target?.key || "";
+        chatSearchActiveResultKey = target?.id || "";
+        updateChatSearchNavigator();
+        focusMessageSearchResult(target);
+      }
+
+      function applyChatSearch(query) {
+        chatSearchQuery = String(query || "");
+        refreshChatSearchResults();
+        renderChats();
+        renderMessages();
+        updateChatSearchClearButton();
+        updateChatSearchNavigator();
+      }
+
+      function clearChatSearch() {
+        if (chatSearchTimer) {
+          window.clearTimeout(chatSearchTimer);
+          chatSearchTimer = null;
+        }
+        applyChatSearch("");
+        const input = document.getElementById("chatSearchInput");
+        if (input) {
+          input.value = "";
+          input.focus();
+        }
+      }
+
+      function getFilteredChats() {
+        const chats = Array.isArray(state?.chats) ? state.chats : [];
+        const query = normalizeSearchText(chatSearchQuery);
+        if (!query) return chats;
+        return chats.filter((chat) => (chatSearchIndex.get(chat.id) || "").includes(query));
+      }
+
+      function getSearchHighlightTerms() {
+        const normalized = normalizeSearchText(chatSearchQuery);
+        if (!normalized) return [];
+        return [normalized];
+      }
+
+      function countOccurrences(text, query) {
+        const haystack = String(text || "");
+        const needle = String(query || "");
+        if (!haystack || !needle) return 0;
+        let count = 0;
+        let from = 0;
+        while (from <= haystack.length) {
+          const hit = haystack.indexOf(needle, from);
+          if (hit < 0) break;
+          count += 1;
+          from = hit + needle.length;
+        }
+        return count;
+      }
+
+      function clearSearchHighlights(root) {
+        if (!root) return;
+        const marks = root.querySelectorAll("span.search-highlight");
+        marks.forEach((mark) => {
+          const parent = mark.parentNode;
+          if (!parent) return;
+          parent.replaceChild(document.createTextNode(mark.textContent || ""), mark);
+          parent.normalize();
+        });
+      }
+
+      function applySearchHighlightTerm(container, term) {
+        if (!container || !term) return;
+        const needle = String(term).toLocaleLowerCase();
+        if (!needle) return;
+        const walker = document.createTreeWalker(
+          container,
+          NodeFilter.SHOW_TEXT,
+          {
+            acceptNode(node) {
+              const text = String(node?.nodeValue || "");
+              if (!text.trim()) return NodeFilter.FILTER_REJECT;
+              const parent = node.parentElement;
+              if (!parent) return NodeFilter.FILTER_REJECT;
+              if (
+                parent.closest(
+                  "span.search-highlight, pre, code, .code-block-head, button, script, style, textarea",
+                )
+              ) {
+                return NodeFilter.FILTER_REJECT;
+              }
+              if (!text.toLocaleLowerCase().includes(needle)) {
+                return NodeFilter.FILTER_REJECT;
+              }
+              return NodeFilter.FILTER_ACCEPT;
+            },
+          },
+          false,
+        );
+        const textNodes = [];
+        while (walker.nextNode()) {
+          textNodes.push(walker.currentNode);
+        }
+        textNodes.forEach((node) => {
+          const raw = String(node.nodeValue || "");
+          const lower = raw.toLocaleLowerCase();
+          let from = 0;
+          const frag = document.createDocumentFragment();
+          let found = false;
+          while (from < raw.length) {
+            const hit = lower.indexOf(needle, from);
+            if (hit < 0) break;
+            if (hit > from) {
+              frag.appendChild(document.createTextNode(raw.slice(from, hit)));
+            }
+            const mark = document.createElement("span");
+            mark.className = "search-highlight";
+            mark.textContent = raw.slice(hit, hit + needle.length);
+            frag.appendChild(mark);
+            from = hit + needle.length;
+            found = true;
+          }
+          if (!found) return;
+          if (from < raw.length) {
+            frag.appendChild(document.createTextNode(raw.slice(from)));
+          }
+          node.parentNode?.replaceChild(frag, node);
+        });
+      }
+
+      function applySearchHighlights(root) {
+        if (!root) return;
+        clearSearchHighlights(root);
+        const terms = getSearchHighlightTerms();
+        if (!terms.length) return;
+        const containers = root.querySelectorAll(".message-bubble-main");
+        containers.forEach((container) => {
+          terms.forEach((term) => applySearchHighlightTerm(container, term));
+        });
+      }
+
+      function formatBytes(bytes) {
+        const size = Number(bytes || 0);
+        if (!Number.isFinite(size) || size <= 0) return "0 B";
+        const units = ["B", "KB", "MB", "GB"];
+        let idx = 0;
+        let value = size;
+        while (value >= 1024 && idx < units.length - 1) {
+          value /= 1024;
+          idx += 1;
+        }
+        return `${value >= 10 || idx === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[idx]}`;
+      }
+
+      function makeAttachmentId() {
+        return `att-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+      }
+
+      function fileToDataURL(file) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result || ""));
+          reader.onerror = () => reject(new Error("文件读取失败"));
+          reader.readAsDataURL(file);
+        });
+      }
+
+      async function buildAttachmentFromFile(file) {
+        const MAX_FILE_SIZE = 6 * 1024 * 1024;
+        if (!file) return null;
+        if (file.size > MAX_FILE_SIZE) {
+          throw new Error(`文件 ${file.name} 超过 6MB，暂不支持`);
+        }
+        const base = {
+          id: makeAttachmentId(),
+          name: file.name || "attachment",
+          mime_type: file.type || "application/octet-stream",
+          size: file.size || 0,
+          kind: "file",
+        };
+        if ((file.type || "").toLowerCase().startsWith("image/")) {
+          const dataUrl = await fileToDataURL(file);
+          return { ...base, kind: "image", data_url: dataUrl };
+        }
+        try {
+          const text = await file.text();
+          return { ...base, kind: "text", text_content: String(text || "").slice(0, 20000) };
+        } catch (_) {
+          return base;
+        }
+      }
+
+      function renderComposeAttachments() {
+        const el = document.getElementById("composeAttachments");
+        if (!el) return;
+        if (!pendingAttachments.length) {
+          el.innerHTML = "";
+          return;
+        }
+        el.innerHTML = pendingAttachments
+          .map((att) => {
+            const label = `${att.name} (${formatBytes(att.size)})`;
+            return `
+              <span class="compose-attachment" title="${escapeAttr(label)}">
+                <span class="compose-attachment-text">${escapeHtml(label)}</span>
+                <button class="compose-attachment-remove" type="button" onclick="removeAttachment('${att.id}')">脳</button>
+              </span>
+            `;
+          })
+          .join("");
+      }
+
+      async function addFilesToPending(fileList) {
+        const files = Array.from(fileList || []);
+        if (!files.length) return;
+        const errorEl = document.getElementById("sendError");
+        for (const file of files) {
+          try {
+            const att = await buildAttachmentFromFile(file);
+            if (!att) continue;
+            pendingAttachments.push(att);
+          } catch (e) {
+            if (errorEl) errorEl.textContent = e.message || "附件处理失败";
+          }
+        }
+        pendingAttachments = pendingAttachments.slice(0, 8);
+        renderComposeAttachments();
+      }
+
+      function removeAttachment(id) {
+        pendingAttachments = pendingAttachments.filter((att) => att.id !== id);
+        renderComposeAttachments();
+      }
+
+      function clearPendingAttachments() {
+        pendingAttachments = [];
+        const picker = document.getElementById("filePicker");
+        if (picker) picker.value = "";
+        renderComposeAttachments();
+      }
+
+      function openFilePicker() {
+        const picker = document.getElementById("filePicker");
+        if (picker) picker.click();
+      }
+
+      function serializeOutgoingAttachments() {
+        return pendingAttachments.map((att) => ({
+          name: att.name,
+          mime_type: att.mime_type,
+          size: Number(att.size || 0),
+          kind: att.kind || "file",
+          data_url: att.data_url || null,
+          text_content: att.text_content || null,
+        }));
+      }
+
+      function isAdmin() {
+        return state?.current_user?.role === "admin";
+      }
+
+      function applyAppMeta(appMeta) {
+        const title = String(appMeta?.title || "Chat").trim() || "Chat";
+        const subtitle =
+          String(appMeta?.subtitle || "Build your own AI assistant").trim() || "Build your own AI assistant";
+        document.title = title;
+        const authTitle = document.getElementById("authAppTitle");
+        const authSubtitle = document.getElementById("authAppSubtitle");
+        const sidebarTitle = document.getElementById("sidebarAppTitle");
+        const sidebarSubtitle = document.getElementById("sidebarAppSubtitle");
+        if (authTitle) authTitle.textContent = title;
+        if (authSubtitle) authSubtitle.textContent = subtitle;
+        if (sidebarTitle) sidebarTitle.textContent = title;
+        if (sidebarSubtitle) sidebarSubtitle.textContent = subtitle;
+      }
+
+      function showAuthPanels(mode) {
+        const loginPanel = document.getElementById("loginPanel");
+        const setupPanel = document.getElementById("setupPanel");
+        if (loginPanel) loginPanel.style.display = mode === "login" ? "block" : "none";
+        if (setupPanel) setupPanel.style.display = mode === "setup" ? "block" : "none";
+      }
+
+      function syncThemeButtons() {
+        const light = document.getElementById("themeLightBtn");
+        const dark = document.getElementById("themeDarkBtn");
+        if (!light || !dark) return;
+        light.classList.toggle("active", currentTheme === "light");
+        dark.classList.toggle("active", currentTheme === "dark");
+      }
+
+      function setTheme(theme, persist = true) {
+        currentTheme = theme === "dark" ? "dark" : "light";
+        document.body.classList.toggle("theme-dark", currentTheme === "dark");
+        syncThemeButtons();
+        if (persist) {
+          try {
+            localStorage.setItem("pychat_theme", currentTheme);
+          } catch (_) {}
+        }
+      }
+
+      function initTheme() {
+        let saved = "light";
+        try {
+          saved = localStorage.getItem("pychat_theme") || "light";
+        } catch (_) {}
+        setTheme(saved, false);
+      }
+
+      function normalizeFontSettings(raw) {
+        const next = { ...DEFAULT_FONT_SETTINGS, ...(raw || {}) };
+        if (!FONT_FAMILY_MAP[next.uiFamily]) next.uiFamily = DEFAULT_FONT_SETTINGS.uiFamily;
+        if (!FONT_FAMILY_MAP[next.chatFamily]) next.chatFamily = DEFAULT_FONT_SETTINGS.chatFamily;
+        next.uiSize = Number.isFinite(Number(next.uiSize))
+          ? Math.max(6, Math.min(36, Math.round(Number(next.uiSize))))
+          : DEFAULT_FONT_SETTINGS.uiSize;
+        next.chatSize = Number.isFinite(Number(next.chatSize))
+          ? Math.max(6, Math.min(36, Math.round(Number(next.chatSize))))
+          : DEFAULT_FONT_SETTINGS.chatSize;
+        return next;
+      }
+
+      function syncFontControls() {
+        const uiFamily = document.getElementById("uiFontFamilySelect");
+        const uiSizeRange = document.getElementById("uiFontSizeRange");
+        const uiSizeValue = document.getElementById("uiFontSizeValue");
+        const chatFamily = document.getElementById("chatFontFamilySelect");
+        const chatSizeRange = document.getElementById("chatFontSizeRange");
+        const chatSizeValue = document.getElementById("chatFontSizeValue");
+        if (!uiFamily || !uiSizeRange || !uiSizeValue || !chatFamily || !chatSizeRange || !chatSizeValue) {
+          return;
+        }
+        uiFamily.value = fontSettings.uiFamily;
+        uiSizeRange.value = String(fontSettings.uiSize);
+        uiSizeValue.textContent = `${fontSettings.uiSize}px`;
+        chatFamily.value = fontSettings.chatFamily;
+        chatSizeRange.value = String(fontSettings.chatSize);
+        chatSizeValue.textContent = `${fontSettings.chatSize}px`;
+      }
+
+      function applyFontSettings(next, persist = true) {
+        fontSettings = normalizeFontSettings(next);
+        const root = document.documentElement;
+        root.style.setProperty("--ui-font-family", FONT_FAMILY_MAP[fontSettings.uiFamily]);
+        root.style.setProperty("--chat-font-family", FONT_FAMILY_MAP[fontSettings.chatFamily]);
+        root.style.setProperty("--ui-font-size", `${fontSettings.uiSize}px`);
+        root.style.setProperty("--chat-font-size", `${fontSettings.chatSize}px`);
+        syncFontControls();
+        if (persist) {
+          try {
+            localStorage.setItem("pychat_font_settings", JSON.stringify(fontSettings));
+          } catch (_) {}
+        }
+      }
+
+      function onFontSettingChange() {
+        const uiFamily = document.getElementById("uiFontFamilySelect")?.value || fontSettings.uiFamily;
+        const uiSize = Number(document.getElementById("uiFontSizeRange")?.value || fontSettings.uiSize);
+        const chatFamily = document.getElementById("chatFontFamilySelect")?.value || fontSettings.chatFamily;
+        const chatSize = Number(document.getElementById("chatFontSizeRange")?.value || fontSettings.chatSize);
+        applyFontSettings({ uiFamily, uiSize, chatFamily, chatSize }, true);
+      }
+
+      function initFontSettings() {
+        let saved = null;
+        try {
+          saved = JSON.parse(localStorage.getItem("pychat_font_settings") || "null");
+        } catch (_) {
+          saved = null;
+        }
+        applyFontSettings(saved || DEFAULT_FONT_SETTINGS, false);
+      }
+
+      function resolveCodeLanguage(lang) {
+        const raw = String(lang || "").trim().toLowerCase();
+        if (!raw) return { display: "text", hljs: "plaintext" };
+        if (["shell", "sh", "zsh", "fish"].includes(raw)) return { display: "shell", hljs: "bash" };
+        if (["bash"].includes(raw)) return { display: "bash", hljs: "bash" };
+        if (["cmd", "bat", "batch", "dos"].includes(raw)) return { display: "cmd", hljs: "dos" };
+        if (["powershell", "pwsh", "ps1", "ps"].includes(raw)) {
+          return { display: "powershell", hljs: "powershell" };
+        }
+        return { display: raw, hljs: raw };
+      }
+
+      function looksLikeCommandLine(line) {
+        const text = (line || "").trim();
+        if (!text) return true;
+        if (/[\u4e00-\u9fff]/.test(text)) return false;
+        if (/^[$#]\s+.+/.test(text)) return true;
+        if (/^[A-Za-z]:\\.*>\s*.+/.test(text)) return true;
+        if (/^PS\s+[^>]+>\s*.+/.test(text)) return true;
+        if (
+          /^(sudo|apt|yum|dnf|brew|pip|python|node|npm|pnpm|yarn|git|docker|kubectl|ssh|scp|ls|cd|cp|mv|rm|cat|grep|find|chmod|chown|systemctl|service|curl|wget|echo|export|set|dir|copy|del|cls|ipconfig|tasklist|netstat|ping|tracert|wmic|choco|winget)\b/i.test(
+            text,
+          )
+        ) {
+          return true;
+        }
+        return false;
+      }
+
+      function guessCommandLanguage(lines) {
+        const text = (lines || []).join("\n");
+        if (/^PS\s+[^>]+>\s*/im.test(text) || /\$env:/i.test(text)) return "powershell";
+        if (/^[A-Za-z]:\\.*>\s*/im.test(text)) return "cmd";
+        if (/^(dir|copy|del|cls|ipconfig|tasklist|wmic|netstat)\b/im.test(text)) return "cmd";
+        return "bash";
+      }
+
+      function renderCodeBlock(code, lang) {
+        const safeCode = escapeHtml(code || "");
+        const langMeta = resolveCodeLanguage(lang);
+        const safeDisplayLang = escapeHtml(langMeta.display);
+        const safeHljsLang = escapeHtml(langMeta.hljs);
+        return `
+          <div class="code-block" data-lang="${safeDisplayLang}" data-hljs-lang="${safeHljsLang}">
+            <div class="code-block-head">
+              <span class="code-lang">${safeDisplayLang}</span>
+              <button class="code-copy-btn" data-copy-code>复制</button>
+            </div>
+            <pre><code class="language-${safeHljsLang}">${safeCode}</code></pre>
+          </div>
+        `;
+      }
+
+      function wrapPlainCommandParagraphs(text) {
+        const parts = (text || "").split(/\n{2,}/);
+        return parts
+          .map((part) => {
+            if (!part || !part.trim()) return "";
+            const lines = part.split("\n");
+            if (lines.every((line) => looksLikeCommandLine(line))) {
+              const lang = guessCommandLanguage(lines);
+              return `\`\`\`${lang}\n${part.trimEnd()}\n\`\`\``;
+            }
+            return part;
+          })
+          .join("\n\n");
+      }
+
+      function preprocessMarkdownContent(text) {
+        const source = String(text || "");
+        const regex = /```[\s\S]*?```/g;
+        let last = 0;
+        const chunks = [];
+        let match = null;
+        while ((match = regex.exec(source)) !== null) {
+          const plain = source.slice(last, match.index);
+          if (plain) chunks.push(wrapPlainCommandParagraphs(plain));
+          chunks.push(match[0]);
+          last = regex.lastIndex;
+        }
+        const tail = source.slice(last);
+        if (tail) chunks.push(wrapPlainCommandParagraphs(tail));
+        return chunks.join("");
+      }
+
+      function getMarkdownRenderer() {
+        if (!window.marked) return null;
+        if (markdownRenderer) return markdownRenderer;
+        const renderer = new window.marked.Renderer();
+        renderer.code = function (code, infostring) {
+          return renderCodeBlock(code, infostring || "");
+        };
+        renderer.link = function (href, title, text) {
+          const safeHref = escapeHtml(href || "");
+          const safeTitle = title ? ` title="${escapeHtml(title)}"` : "";
+          return `<a href="${safeHref}" target="_blank" rel="noreferrer noopener"${safeTitle}>${text}</a>`;
+        };
+        window.marked.setOptions({
+          gfm: true,
+          breaks: true,
+          mangle: false,
+          headerIds: false,
+        });
+        markdownRenderer = renderer;
+        return markdownRenderer;
+      }
+
+      function renderMessageContent(text) {
+        const source = preprocessMarkdownContent(text);
+        const renderer = getMarkdownRenderer();
+        if (!renderer || !window.marked) {
+          return `<div class="markdown-content"><p>${escapeHtml(source).replace(/\n/g, "<br>")}</p></div>`;
+        }
+        const rawHtml = window.marked.parse(source, { renderer });
+        const safeHtml = window.DOMPurify
+          ? window.DOMPurify.sanitize(rawHtml, {
+              ADD_ATTR: ["target", "rel", "class", "data-lang", "data-copy-code"],
+            })
+          : rawHtml;
+        return `<div class="markdown-content">${safeHtml}</div>`;
+      }
+
+      function renderMessageAttachments(attachments) {
+        const list = Array.isArray(attachments) ? attachments : [];
+        if (!list.length) return "";
+        const html = list
+          .map((att) => {
+            const name = escapeHtml(String(att?.name || "attachment"));
+            const mime = escapeHtml(String(att?.mime_type || "application/octet-stream"));
+            const size = formatBytes(Number(att?.size || 0));
+            const kind = String(att?.kind || "file");
+            const dataUrl = String(att?.data_url || "");
+            const textContent = String(att?.text_content || "");
+            if (kind === "image" && isImageAttachmentSource(dataUrl)) {
+              return `
+                <div class="message-attachment-card">
+                  <div class="message-attachment-meta">图片附件: ${name} · ${size}</div>
+                  <img class="message-attachment-image" src="${escapeAttr(dataUrl)}" alt="${escapeAttr(name)}" loading="lazy" style="cursor: zoom-in;" onclick="openImagePreview(this.src, '${escapeAttr(name)}')" />
+                </div>
+              `;
+            }
+            if (textContent) {
+              return `
+                <div class="message-attachment-card">
+                  <div class="message-attachment-meta">文本附件: ${name} · ${mime} · ${size}</div>
+                  <div class="message-attachment-meta">已提取文本用于分析（正文已隐藏）</div>
+                </div>
+              `;
+            }
+            return `
+              <div class="message-attachment-card">
+                <div class="message-attachment-meta">文件附件: ${name} · ${mime} · ${size}</div>
+              </div>
+            `;
+          })
+          .join("");
+        return `<div class="message-attachments">${html}</div>`;
+      }
+
+      function getChatById(chatId) {
+        return (state?.chats || []).find((c) => c.id === chatId) || null;
+      }
+
+      function getMessageByIndex(chatId, idx) {
+        const chat = getChatById(chatId);
+        if (!chat || !Array.isArray(chat.messages)) return null;
+        if (idx < 0 || idx >= chat.messages.length) return null;
+        return chat.messages[idx] || null;
+      }
+
+      function isImageAttachmentSource(dataUrl) {
+        const value = String(dataUrl || "");
+        return (
+          value.startsWith("data:") ||
+          value.startsWith("http://") ||
+          value.startsWith("https://") ||
+          value.startsWith("/data/file/")
+        );
+      }
+
+      function attachmentHasImage(att) {
+        return String(att?.kind || "") === "image" && isImageAttachmentSource(att?.data_url);
+      }
+
+      function messageHasImageAttachments(message) {
+        const attachments = Array.isArray(message?.attachments) ? message.attachments : [];
+        return attachments.some((att) => attachmentHasImage(att));
+      }
+
+      function chatHasImageAttachments(chat) {
+        const messages = Array.isArray(chat?.messages) ? chat.messages : [];
+        return messages.some((msg) => messageHasImageAttachments(msg));
+      }
+
+      function openImagePreview(src, altText = "图片预览") {
+        const imageUrl = String(src || "").trim();
+        if (!imageUrl) return;
+        const mask = document.getElementById("imagePreviewMask");
+        const dialog = document.getElementById("imagePreviewDialog");
+        const img = document.getElementById("imagePreviewImg");
+        if (!mask || !dialog || !img) return;
+        img.src = imageUrl;
+        img.alt = String(altText || "图片预览");
+        mask.classList.add("show");
+        dialog.classList.add("show");
+        imagePreviewOpen = true;
+      }
+
+      function closeImagePreview() {
+        const mask = document.getElementById("imagePreviewMask");
+        const dialog = document.getElementById("imagePreviewDialog");
+        const img = document.getElementById("imagePreviewImg");
+        if (mask) mask.classList.remove("show");
+        if (dialog) dialog.classList.remove("show");
+        if (img) {
+          img.removeAttribute("src");
+        }
+        imagePreviewOpen = false;
+      }
+
+      function attachmentToPlainText(att) {
+        const name = String(att?.name || "attachment");
+        const mime = String(att?.mime_type || "application/octet-stream");
+        const size = formatBytes(Number(att?.size || 0));
+        if (att?.kind === "image") {
+          return `[图片附件] ${name} (${mime}, ${size})`;
+        }
+        if (String(att?.text_content || "")) {
+          return `[文本附件] ${name} (${mime}, ${size}) 已提取文本用于分析（正文已隐藏）`;
+        }
+        return `[文件附件] ${name} (${mime}, ${size})`;
+      }
+
+      function attachmentToMarkdown(att) {
+        const name = String(att?.name || "attachment");
+        const mime = String(att?.mime_type || "application/octet-stream");
+        const size = formatBytes(Number(att?.size || 0));
+        const dataUrl = String(att?.data_url || "");
+        if (att?.kind === "image" && isImageAttachmentSource(dataUrl)) {
+          return `![${name}](${dataUrl})`;
+        }
+        if (String(att?.text_content || "")) {
+          return `- 文本附件: ${name} (${mime}, ${size})，已提取文本用于分析（正文已隐藏）`;
+        }
+        return `- 文件附件: ${name} (${mime}, ${size})`;
+      }
+
+      function messageToPlainText(message) {
+        if (!message) return "";
+        const base = String(message.content || "");
+        const attachments = Array.isArray(message.attachments) ? message.attachments : [];
+        if (!attachments.length) return base;
+        const lines = attachments.map(attachmentToPlainText).join("\n\n");
+        return base ? `${base}\n\n${lines}` : lines;
+      }
+
+      function messageToMarkdown(message) {
+        if (!message) return "";
+        const base = String(message.content || "");
+        const attachments = Array.isArray(message.attachments) ? message.attachments : [];
+        if (!attachments.length) return base;
+        const blocks = attachments.map(attachmentToMarkdown).join("\n\n");
+        return base ? `${base}\n\n${blocks}` : blocks;
+      }
+
+      function downloadTextFile(filename, content, mime = "text/plain;charset=utf-8") {
+        const safeName = String(filename || "download.txt").replace(/[\\/:*?"<>|]+/g, "_");
+        const blob = new Blob([content], { type: mime });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = safeName;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 500);
+      }
+
+      function downloadBlobFile(filename, blob) {
+        const safeName = String(filename || "download.bin").replace(/[\\/:*?"<>|]+/g, "_");
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = safeName;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 800);
+      }
+
+      function sanitizeExportFileName(name, fallback = "file") {
+        const cleaned = String(name || "")
+          .trim()
+          .replace(/[\\/:*?"<>|]+/g, "_")
+          .replace(/\s+/g, " ");
+        return cleaned || fallback;
+      }
+
+      function imageExtensionFromMime(mime) {
+        const value = String(mime || "").toLowerCase();
+        if (value === "image/jpeg") return "jpg";
+        if (value === "image/png") return "png";
+        if (value === "image/webp") return "webp";
+        if (value === "image/gif") return "gif";
+        if (value.startsWith("image/")) return value.split("/", 2)[1] || "png";
+        return "png";
+      }
+
+      function buildUniqueImageFileName(att, index, usedNames) {
+        const fallbackBase = `image-${index + 1}`;
+        const rawName = sanitizeExportFileName(att?.name || "", fallbackBase);
+        const extByNameMatch = rawName.match(/\.([a-zA-Z0-9]{2,8})$/);
+        const extByName = extByNameMatch ? extByNameMatch[1].toLowerCase() : "";
+        const ext = extByName || imageExtensionFromMime(att?.mime_type || "");
+        const baseWithoutExt = extByName ? rawName.slice(0, -(extByName.length + 1)) : rawName;
+        const safeBase = sanitizeExportFileName(baseWithoutExt, fallbackBase);
+        let filename = `${safeBase}.${ext}`;
+        let n = 2;
+        while (usedNames.has(filename.toLowerCase())) {
+          filename = `${safeBase}-${n}.${ext}`;
+          n += 1;
+        }
+        usedNames.add(filename.toLowerCase());
+        return filename;
+      }
+
+      async function fetchImageBlobForExport(dataUrl) {
+        const src = String(dataUrl || "").trim();
+        if (!src) {
+          throw new Error("图片地址为空");
+        }
+        const res = await fetch(src, src.startsWith("data:") ? {} : { credentials: "same-origin" });
+        if (!res.ok) {
+          throw new Error(`图片下载失败 (${res.status})`);
+        }
+        return res.blob();
+      }
+
+      async function buildMessageMarkdownWithImages(
+        message,
+        imagesFolder,
+        usedImageNames,
+        imageBlobCache = new Map(),
+      ) {
+        if (!message) return "";
+        const base = String(message.content || "");
+        const attachments = Array.isArray(message.attachments) ? message.attachments : [];
+        if (!attachments.length) return base;
+        const blocks = [];
+        let imageIndex = 0;
+        for (const att of attachments) {
+          if (attachmentHasImage(att)) {
+            const src = String(att?.data_url || "");
+            const cacheKey = src;
+            let blobPromise = imageBlobCache.get(cacheKey);
+            if (!blobPromise) {
+              blobPromise = fetchImageBlobForExport(src);
+              imageBlobCache.set(cacheKey, blobPromise);
+            }
+            try {
+              const blob = await blobPromise;
+              const imageFileName = buildUniqueImageFileName(att, imageIndex, usedImageNames);
+              imagesFolder.file(imageFileName, blob);
+              const altName = String(att?.name || imageFileName);
+              blocks.push(`![${altName}](images/${imageFileName})`);
+            } catch (_) {
+              blocks.push(attachmentToMarkdown(att));
+            }
+            imageIndex += 1;
+            continue;
+          }
+          blocks.push(attachmentToMarkdown(att));
+        }
+        const merged = blocks.join("\n\n");
+        return base ? `${base}\n\n${merged}` : merged;
+      }
+
+      async function buildSingleMessageZipBlob(chat, message, idx) {
+        if (typeof window.JSZip !== "function") {
+          throw new Error("zip 导出组件未加载");
+        }
+        const zip = new window.JSZip();
+        const imagesFolder = zip.folder("images");
+        const usedImageNames = new Set();
+        const markdownBody = await buildMessageMarkdownWithImages(
+          message,
+          imagesFolder,
+          usedImageNames,
+        );
+        const roleName = message.role === "assistant" ? "assistant" : message.role === "user" ? "user" : "message";
+        const chatTitle = sanitizeExportFileName(chat?.title || "chat", "chat");
+        const mdFileName = `${chatTitle}-${idx + 1}-${roleName}.md`;
+        zip.file(mdFileName, markdownBody || "");
+        return zip.generateAsync({ type: "blob" });
+      }
+
+      async function buildChatZipBlob(chat) {
+        if (typeof window.JSZip !== "function") {
+          throw new Error("zip 导出组件未加载");
+        }
+        const zip = new window.JSZip();
+        const imagesFolder = zip.folder("images");
+        const usedImageNames = new Set();
+        const imageBlobCache = new Map();
+        const title = String(chat?.title || "新对话").trim() || "新对话";
+        const lines = [`# ${title}`, ""];
+        const messages = Array.isArray(chat?.messages) ? chat.messages : [];
+        for (let idx = 0; idx < messages.length; idx += 1) {
+          const msg = messages[idx];
+          lines.push(`## ${idx + 1}. ${roleLabel(msg.role)}`);
+          lines.push("");
+          lines.push(
+            await buildMessageMarkdownWithImages(
+              msg,
+              imagesFolder,
+              usedImageNames,
+              imageBlobCache,
+            ),
+          );
+          lines.push("");
+        }
+        const safeTitle = sanitizeExportFileName(title, "chat");
+        zip.file(`${safeTitle}.md`, lines.join("\n"));
+        return zip.generateAsync({ type: "blob" });
+      }
+
+      function fallbackCopyText(text) {
+        const value = String(text || "");
+        if (!value) return false;
+        const textarea = document.createElement("textarea");
+        textarea.value = value;
+        textarea.setAttribute("readonly", "readonly");
+        textarea.style.position = "fixed";
+        textarea.style.left = "-9999px";
+        textarea.style.top = "0";
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        textarea.setSelectionRange(0, textarea.value.length);
+        let ok = false;
+        try {
+          ok = document.execCommand("copy");
+        } catch (_) {
+          ok = false;
+        } finally {
+          textarea.remove();
+        }
+        return ok;
+      }
+
+      async function writeClipboardText(text) {
+        const value = String(text || "");
+        if (!value) return false;
+        if (navigator.clipboard?.writeText) {
+          try {
+            await navigator.clipboard.writeText(value);
+            return true;
+          } catch (_) {}
+        }
+        return fallbackCopyText(value);
+      }
+
+      async function copyMessagePlainText(chatId, idx, buttonEl) {
+        const message = getMessageByIndex(chatId, idx);
+        if (!message) return;
+        const text = messageToPlainText(message);
+        if (!text) return;
+        const copied = await writeClipboardText(text);
+        if (!copied) {
+          return;
+        }
+        if (buttonEl) {
+          const originalTitle = buttonEl.getAttribute("title");
+          const originalAria = buttonEl.getAttribute("aria-label");
+          buttonEl.classList.add("is-copied");
+          buttonEl.setAttribute("title", "已复制");
+          buttonEl.setAttribute("aria-label", "已复制");
+          setTimeout(() => {
+            buttonEl.classList.remove("is-copied");
+            if (originalTitle === null) buttonEl.removeAttribute("title");
+            else buttonEl.setAttribute("title", originalTitle);
+            if (originalAria === null) buttonEl.removeAttribute("aria-label");
+            else buttonEl.setAttribute("aria-label", originalAria);
+          }, 1000);
+        }
+      }
+
+      async function downloadMessageMarkdown(chatId, idx) {
+        const chat = getChatById(chatId);
+        const message = getMessageByIndex(chatId, idx);
+        if (!chat || !message) return;
+        const roleName = message.role === "assistant" ? "assistant" : message.role === "user" ? "user" : "message";
+        const title = String(chat.title || "chat").trim() || "chat";
+        if (!messageHasImageAttachments(message)) {
+          const body = messageToMarkdown(message);
+          const filename = `${title}-${idx + 1}-${roleName}.md`;
+          downloadTextFile(filename, body || "", "text/markdown;charset=utf-8");
+          return;
+        }
+        try {
+          const zipBlob = await buildSingleMessageZipBlob(chat, message, idx);
+          const zipName = `${sanitizeExportFileName(title, "chat")}-${idx + 1}-${roleName}.zip`;
+          downloadBlobFile(zipName, zipBlob);
+        } catch (e) {
+          const errText = e?.message ? String(e.message) : "打包下载失败";
+          const errorEl = document.getElementById("sendError");
+          if (errorEl) errorEl.textContent = `下载失败：${errText}`;
+        }
+      }
+
+      function roleLabel(role) {
+        if (role === "assistant") return "Assistant";
+        if (role === "user") return "User";
+        return "Message";
+      }
+
+      function chatToMarkdown(chat) {
+        if (!chat) return "";
+        const title = String(chat.title || "新对话").trim() || "新对话";
+        const lines = [`# ${title}`, ""];
+        const messages = Array.isArray(chat.messages) ? chat.messages : [];
+        messages.forEach((msg, idx) => {
+          lines.push(`## ${idx + 1}. ${roleLabel(msg.role)}`);
+          lines.push("");
+          lines.push(messageToMarkdown(msg) || "");
+          lines.push("");
+        });
+        return lines.join("\n");
+      }
+
+      async function downloadChatMarkdown(chatId) {
+        const chat = getChatById(chatId);
+        if (!chat) return;
+        const title = String(chat.title || "chat").trim() || "chat";
+        if (!chatHasImageAttachments(chat)) {
+          const content = chatToMarkdown(chat);
+          downloadTextFile(`${title}.md`, content, "text/markdown;charset=utf-8");
+          return;
+        }
+        try {
+          const zipBlob = await buildChatZipBlob(chat);
+          downloadBlobFile(`${sanitizeExportFileName(title, "chat")}.zip`, zipBlob);
+        } catch (e) {
+          const errText = e?.message ? String(e.message) : "打包下载失败";
+          const errorEl = document.getElementById("sendError");
+          if (errorEl) errorEl.textContent = `下载失败：${errText}`;
+        }
+      }
+
+      async function copyCodeFromBlock(button) {
+        const code = button?.closest(".code-block")?.querySelector("code")?.textContent || "";
+        if (!code) return;
+        const original = button.textContent;
+        const copied = await writeClipboardText(code);
+        if (copied) {
+          button.textContent = "已复制";
+        } else {
+          button.textContent = "复制失败";
+        }
+        setTimeout(() => {
+          button.textContent = original;
+        }, 1200);
+      }
+
+      function highlightCmdCode(text) {
+        const cmdKeywords = new Set([
+          "echo",
+          "set",
+          "if",
+          "else",
+          "for",
+          "goto",
+          "call",
+          "pause",
+          "hostname",
+          "whoami",
+          "ipconfig",
+          "wmic",
+          "dir",
+          "cd",
+          "copy",
+          "del",
+          "type",
+          "findstr",
+          "tasklist",
+          "netstat",
+          "ping",
+          "tracert",
+          "where",
+          "cls",
+          "start",
+          "shutdown",
+        ]);
+        return String(text || "")
+          .split("\n")
+          .map((line) => {
+            const raw = line || "";
+            if (/^\s*(::|rem\b)/i.test(raw)) {
+              return `<span class="cmd-comment">${escapeHtml(raw)}</span>`;
+            }
+            const match = raw.match(/^(\s*@?)([A-Za-z][\w.-]*)(.*)$/);
+            if (!match) return escapeHtml(raw);
+            const [, prefix, cmd, rest] = match;
+            const safePrefix = escapeHtml(prefix);
+            const safeCmd = cmdKeywords.has(cmd.toLowerCase())
+              ? `<span class="cmd-keyword">${escapeHtml(cmd)}</span>`
+              : `<span class="cmd-command">${escapeHtml(cmd)}</span>`;
+            let safeRest = escapeHtml(rest);
+            safeRest = safeRest.replace(/(%[^%\n]+%|![^!\n]+!)/g, "<span class=\"cmd-var\">$1</span>");
+            safeRest = safeRest.replace(/(\"[^\"]*\")/g, "<span class=\"cmd-string\">$1</span>");
+            safeRest = safeRest.replace(/(^|\s)(\/[A-Za-z0-9][\w-]*)/g, "$1<span class=\"cmd-flag\">$2</span>");
+            return `${safePrefix}${safeCmd}${safeRest}`;
+          })
+          .join("\n");
+      }
+
+      function highlightShellCode(text) {
+        return String(text || "")
+          .split("\n")
+          .map((line) => {
+            const raw = line || "";
+            if (!raw.trim()) return "";
+            if (/^\s*#/.test(raw)) {
+              return `<span class="cmd-comment">${escapeHtml(raw)}</span>`;
+            }
+
+            let rest = raw;
+            let prompt = "";
+            const promptMatch = rest.match(/^(\s*[$#]\s+)(.*)$/);
+            if (promptMatch) {
+              prompt = `<span class="cmd-prompt">${escapeHtml(promptMatch[1])}</span>`;
+              rest = promptMatch[2];
+            }
+
+            const match = rest.match(/^(\s*)([A-Za-z0-9_.\/-]+)(.*)$/);
+            if (!match) return `${prompt}${escapeHtml(rest)}`;
+            const [, leading, cmd, tail] = match;
+            let safeTail = escapeHtml(tail);
+            safeTail = safeTail.replace(/(^|\s)(--?[A-Za-z0-9][\w-]*)/g, "$1<span class=\"cmd-flag\">$2</span>");
+            safeTail = safeTail.replace(/(\$[A-Za-z_][A-Za-z0-9_]*|\$\{[^}\n]+\})/g, "<span class=\"cmd-var\">$1</span>");
+            safeTail = safeTail.replace(/(\"[^\"]*\"|'[^']*')/g, "<span class=\"cmd-string\">$1</span>");
+            return `${prompt}${escapeHtml(leading)}<span class="cmd-command">${escapeHtml(cmd)}</span>${safeTail}`;
+          })
+          .join("\n");
+      }
+
+      function highlightPowerShellCode(text) {
+        return String(text || "")
+          .split("\n")
+          .map((line) => {
+            const raw = line || "";
+            if (!raw.trim()) return "";
+            if (/^\s*#/.test(raw)) {
+              return `<span class="cmd-comment">${escapeHtml(raw)}</span>`;
+            }
+            const match = raw.match(/^(\s*)([A-Za-z][\w.-]*(?:-[A-Za-z][\w.-]*)?)(.*)$/);
+            if (!match) return escapeHtml(raw);
+            const [, leading, cmd, tail] = match;
+            let safeTail = escapeHtml(tail);
+            safeTail = safeTail.replace(/(^|\s)(-[A-Za-z][A-Za-z0-9-]*)/g, "$1<span class=\"cmd-flag\">$2</span>");
+            safeTail = safeTail.replace(/(\$[A-Za-z_][A-Za-z0-9_]*|\$\{[^}\n]+\})/g, "<span class=\"cmd-var\">$1</span>");
+            safeTail = safeTail.replace(/(\"[^\"]*\"|'[^']*')/g, "<span class=\"cmd-string\">$1</span>");
+            return `${escapeHtml(leading)}<span class="cmd-command">${escapeHtml(cmd)}</span>${safeTail}`;
+          })
+          .join("\n");
+      }
+
+      function applyCodeHighlighting(root) {
+        if (!root) return;
+        const nodes = root.querySelectorAll(".code-block pre code");
+        nodes.forEach((node) => {
+          try {
+            const block = node.closest(".code-block");
+            const hljsLang = block?.dataset?.hljsLang || "";
+            if (hljsLang === "dos") {
+              node.innerHTML = highlightCmdCode(node.textContent || "");
+              node.classList.add("hljs", "language-dos");
+              return;
+            }
+            if (["bash", "shell", "sh", "zsh", "fish"].includes(hljsLang)) {
+              node.innerHTML = highlightShellCode(node.textContent || "");
+              node.classList.add("hljs", `language-${hljsLang}`);
+              return;
+            }
+            if (hljsLang === "powershell") {
+              node.innerHTML = highlightPowerShellCode(node.textContent || "");
+              node.classList.add("hljs", "language-powershell");
+              return;
+            }
+            if (window.hljs && hljsLang && window.hljs.getLanguage(hljsLang)) {
+              const highlighted = window.hljs.highlight(node.textContent || "", {
+                language: hljsLang,
+                ignoreIllegals: true,
+              }).value;
+              node.innerHTML = highlighted;
+              node.classList.add("hljs", `language-${hljsLang}`);
+            } else if (window.hljs) {
+              window.hljs.highlightElement(node);
+            }
+          } catch (_) {}
+        });
+      }
+
+      function showLogin(show) {
+        document.getElementById("login").style.display = show ? "flex" : "none";
+        document.getElementById("appShell").style.display = show ? "none" : "block";
+      }
+
+      function stopTypingAnimation() {
+        if (typingTimer) {
+          clearTimeout(typingTimer);
+          typingTimer = null;
+        }
+      }
+
+      function animateAssistantReply(chatId, fullText) {
+        stopTypingAnimation();
+        return new Promise((resolve) => {
+          const text = String(fullText || "");
+          let index = 0;
+
+          function step() {
+            if (!pendingReply || pendingReply.chatId !== chatId || pendingReply.mode !== "typing") {
+              stopTypingAnimation();
+              resolve();
+              return;
+            }
+
+            const remain = text.length - index;
+            if (remain <= 0) {
+              stopTypingAnimation();
+              resolve();
+              return;
+            }
+
+            const size =
+              remain > 2200
+                ? 30
+                : remain > 1200
+                  ? 22
+                  : remain > 600
+                    ? 14
+                    : remain > 240
+                      ? 9
+                      : 5;
+            index = Math.min(text.length, index + size);
+            pendingReply.content = text.slice(0, index);
+            renderMessages();
+
+            const delay = index < text.length ? 14 : 0;
+            if (delay) {
+              typingTimer = setTimeout(step, delay);
+            } else {
+              stopTypingAnimation();
+              resolve();
+            }
+          }
+
+          step();
+        });
+      }
+
+      function selectedChat() {
+        return state?.chats?.find((c) => c.id === selectedChatId) || null;
+      }
+
+      function findMaskById(maskId) {
+        const id = String(maskId || "").trim();
+        if (!id) return null;
+        return (state?.masks || []).find((m) => m.id === id) || null;
+      }
+
+      function getAssistantIdentityName(message, chat = null) {
+        const nameFromMessage = String(message?.agent_name || "").trim();
+        if (nameFromMessage) return nameFromMessage;
+        const msgMaskId = String(message?.mask_id || "").trim();
+        if (msgMaskId) {
+          const mask = findMaskById(msgMaskId);
+          if (mask?.name) return String(mask.name);
+        }
+        return "助手";
+      }
+
+      function getAssistantAvatar(name) {
+        const chars = Array.from(String(name || "").trim());
+        if (!chars.length) return "A";
+        const first = chars[0];
+        if (/^[a-z]$/i.test(first)) return first.toUpperCase();
+        return first;
+      }
+
+      function buildChatTitlePreview(message) {
+        const text = String(message || "").replace(/\s+/g, " ").trim();
+        if (!text) return "新对话";
+        return text.length > 28 ? `${text.slice(0, 28).trim()}...` : text;
+      }
+
+      function splitStreamingMarkdown(text) {
+        const source = String(text || "");
+        const ticks = [...source.matchAll(/```/g)];
+        if (ticks.length % 2 === 0) {
+          return { stable: source, tail: "" };
+        }
+        const lastOpenIdx = ticks[ticks.length - 1]?.index ?? source.length;
+        return {
+          stable: source.slice(0, lastOpenIdx),
+          tail: source.slice(lastOpenIdx),
+        };
+      }
+
+      function renderStreamingContent(text) {
+        const { stable, tail } = splitStreamingMarkdown(text);
+        const stableHtml = stable ? renderMessageContent(stable) : "";
+        const tailHtml = tail ? `<div class="streaming-tail">${escapeHtml(tail)}</div>` : "";
+        if (!stableHtml && !tailHtml) {
+          return `<div class="streaming-tail"></div>`;
+        }
+        return `${stableHtml}${tailHtml}`;
+      }
+
+      function hasActiveMessageSelection() {
+        const sel = window.getSelection?.();
+        if (!sel || sel.isCollapsed || sel.rangeCount < 1) return false;
+        const container = document.getElementById("messages");
+        if (!container) return false;
+        const range = sel.getRangeAt(0);
+        return container.contains(range.commonAncestorContainer);
+      }
+
+      function insertTextAtCursor(textarea, text) {
+        const start = textarea.selectionStart;
+        const end = textarea.selectionEnd;
+        const value = textarea.value;
+        textarea.value = `${value.slice(0, start)}${text}${value.slice(end)}`;
+        const nextPos = start + text.length;
+        textarea.selectionStart = textarea.selectionEnd = nextPos;
+      }
+
+      function isNearBottom(element, threshold = AUTO_SCROLL_BOTTOM_THRESHOLD) {
+        if (!element) return true;
+        const distance = element.scrollHeight - element.clientHeight - element.scrollTop;
+        return distance <= threshold;
+      }
+
+      function setAutoScrollFromPosition(element = document.getElementById("messages")) {
+        shouldAutoScroll = isNearBottom(element);
+      }
+
+      function scrollMessagesToBottomIfNeeded(force = false) {
+        const msgEl = document.getElementById("messages");
+        if (!msgEl) return;
+        if (force || shouldAutoScroll) {
+          msgEl.scrollTop = msgEl.scrollHeight;
+          shouldAutoScroll = true;
+        }
+      }
+
+      function initMessageScrollTracking() {
+        if (messageScrollListenerBound) return;
+        const msgEl = document.getElementById("messages");
+        if (!msgEl) return;
+        msgEl.addEventListener(
+          "scroll",
+          () => {
+            setAutoScrollFromPosition(msgEl);
+          },
+          { passive: true },
+        );
+        messageScrollListenerBound = true;
+        setAutoScrollFromPosition(msgEl);
+      }
+
+      function updatePendingReplyDom() {
+        if (!pendingReply) return;
+        const row = document.getElementById(`pending-row-${pendingReply.chatId}`);
+        if (!row) return;
+        const renderEl = row.querySelector(".pending-stream-render");
+        if (!renderEl) return;
+        if (hasActiveMessageSelection()) {
+          pendingReply.deferRender = true;
+          return;
+        }
+        renderEl.innerHTML = renderStreamingContent(pendingReply.content || "");
+        applyCodeHighlighting(renderEl);
+        pendingReply.deferRender = false;
+        scrollMessagesToBottomIfNeeded();
+      }
+
+      function findChatById(chatId) {
+        return state?.chats?.find((c) => c.id === chatId) || null;
+      }
+
+      function closeMessageIndex() {
+        messageIndexChatId = null;
+        document.getElementById("jumpPanel").classList.remove("show");
+        document.getElementById("jumpMask").classList.remove("show");
+      }
+
+      function closeConfirmDialog(result) {
+        document.getElementById("confirmDialog").classList.remove("show");
+        document.getElementById("confirmMask").classList.remove("show");
+        if (confirmResolver) {
+          const resolve = confirmResolver;
+          confirmResolver = null;
+          resolve(Boolean(result));
+        }
+      }
+
+      function showConfirmDialog(message, title = "请确认") {
+        if (confirmResolver) {
+          closeConfirmDialog(false);
+        }
+        document.getElementById("confirmTitle").textContent = title;
+        document.getElementById("confirmBody").textContent = message;
+        document.getElementById("confirmDialog").classList.add("show");
+        document.getElementById("confirmMask").classList.add("show");
+        return new Promise((resolve) => {
+          confirmResolver = resolve;
+        });
+      }
+
+      function openMessageIndex(chatId) {
+        const chat = findChatById(chatId);
+        if (!chat) return;
+        messageIndexChatId = chatId;
+        if (selectedChatId !== chatId) {
+          selectedChatId = chatId;
+          render();
+        }
+
+        const userMessages = (chat.messages || [])
+          .map((m, idx) => ({ ...m, idx }))
+          .filter((m) => m.role === "user");
+        const jumpList = document.getElementById("jumpList");
+        const jumpSubtitle = document.getElementById("jumpSubtitle");
+        jumpSubtitle.textContent = `${userMessages.length} 条用户消息`;
+
+        if (!userMessages.length) {
+          jumpList.innerHTML = `<div class="list-card" style="color:#6b7c88;">这个会话里还没有你的发言</div>`;
+        } else {
+          jumpList.innerHTML = userMessages
+            .map((m, order) => {
+              const plain = String(m.content || "").replace(/\s+/g, " ").trim();
+              const preview = escapeHtml(plain || "(空消息)");
+              return `
+                <button class="jump-item" onclick="jumpToMessage('${chatId}', ${m.idx})">
+                  <div class="jump-item-index">第 ${order + 1} 条</div>
+                  <div class="jump-item-text">${preview}</div>
+                </button>
+              `;
+            })
+            .join("");
+        }
+
+        document.getElementById("jumpPanel").classList.add("show");
+        document.getElementById("jumpMask").classList.add("show");
+      }
+
+      function jumpToMessage(chatId, msgIdx) {
+        if (selectedChatId !== chatId) {
+          selectedChatId = chatId;
+          render();
+        }
+        closeMessageIndex();
+        shouldAutoScroll = false;
+        requestAnimationFrame(() => {
+          const messageContainer = document.getElementById("messages");
+          const target = messageContainer?.querySelector(`.message-row[data-msg-idx="${msgIdx}"]`);
+          if (!target) return;
+          target.scrollIntoView({ behavior: "smooth", block: "center" });
+          target.classList.add("message-jump-highlight");
+          setTimeout(() => {
+            target.classList.remove("message-jump-highlight");
+          }, 1300);
+        });
+      }
+
+      function setSending(next) {
+        sending = next;
+        const btn = document.getElementById("sendButton");
+        btn.disabled = false;
+        btn.textContent = next ? "停止生成" : "发送";
+      }
+
+      function stopStreaming() {
+        if (!sending) return;
+        if (streamAbortController) {
+          streamAbortController.abort();
+        }
+      }
+
+      function toggleSidebar(show) {
+        const sidebar = document.getElementById("sidebar");
+        const mask = document.getElementById("sidebarMask");
+        sidebar.classList.toggle("show", show);
+        mask.classList.toggle("show", show);
+      }
+
+      function openSettings(tab = "general") {
+        const target = tab || "general";
+        settingsTab = target;
+        updateSettingsVisibility();
+        switchSettingsTab(target);
+        document.getElementById("settingsPanel").classList.add("show");
+        document.getElementById("settingsMask").classList.add("show");
+      }
+
+      function closeSettings() {
+        document.getElementById("settingsPanel").classList.remove("show");
+        document.getElementById("settingsMask").classList.remove("show");
+      }
+
+      function updateSettingsVisibility() {
+        const admin = isAdmin();
+        document.getElementById("tabAdminBtn").style.display = admin ? "inline-block" : "none";
+        document.getElementById("tabModelsBtn").style.display = "inline-block";
+        document.getElementById("modelAdminSection").style.display = admin ? "block" : "none";
+        document.getElementById("modelReadonlyHint").style.display = admin ? "none" : "block";
+        if (!admin && settingsTab === "admin") {
+          settingsTab = "general";
+        }
+      }
+
+      function switchSettingsTab(tab) {
+        const admin = isAdmin();
+        const tabs = ["general", "models", "agents", "admin"];
+        if (!admin && tab === "admin") {
+          tab = "general";
+        }
+        settingsTab = tab;
+        tabs.forEach((name) => {
+          const tabEl = document.getElementById(`tab${name.charAt(0).toUpperCase()}${name.slice(1)}Btn`);
+          const bodyEl = document.getElementById(`settings${name.charAt(0).toUpperCase()}${name.slice(1)}`);
+          if (tabEl) tabEl.classList.toggle("active", name === tab);
+          if (bodyEl) bodyEl.classList.toggle("show", name === tab);
+        });
+      }
+
+      async function checkAuth() {
+        try {
+          const status = await api("/api/auth/status", { method: "GET", headers: {} });
+          authStatusCache = status;
+          applyAppMeta(status?.app);
+          if (status.need_setup) {
+            showLogin(true);
+            showAuthPanels("setup");
+            document.getElementById("loginError").textContent = "";
+            return;
+          }
+          if (status.authorized) {
+            showLogin(false);
+            await loadState();
+            return;
+          }
+          showLogin(true);
+          showAuthPanels("login");
+        } catch (e) {
+          showLogin(true);
+          showAuthPanels("login");
+          const loginError = document.getElementById("loginError");
+          if (loginError) {
+            loginError.textContent = e?.message ? `连接失败：${e.message}` : "连接失败，请稍后重试";
+          }
+        }
+      }
+
+      async function initApp() {
+        const setupError = document.getElementById("setupError");
+        setupError.textContent = "";
+        const app_title = document.getElementById("setupAppTitle").value.trim();
+        const app_subtitle = document.getElementById("setupAppSubtitle").value.trim();
+        const admin_password = document.getElementById("setupAdminPassword").value;
+        const confirm = document.getElementById("setupAdminPasswordConfirm").value;
+        const default_model_name = document.getElementById("setupModelName").value.trim();
+        const default_base_url = document.getElementById("setupModelUrl").value.trim();
+        const default_api_key = document.getElementById("setupModelKey").value.trim();
+        if (!admin_password) {
+          setupError.textContent = "管理员密码不能为空";
+          return;
+        }
+        if (admin_password !== confirm) {
+          setupError.textContent = "两次密码输入不一致";
+          return;
+        }
+        try {
+          await api("/api/setup/init", {
+            method: "POST",
+            body: JSON.stringify({
+              app_title: app_title || null,
+              app_subtitle: app_subtitle || null,
+              admin_password,
+              default_model_name: default_model_name || null,
+              default_base_url: default_base_url || null,
+              default_api_key: default_api_key || null,
+            }),
+          });
+          await checkAuth();
+        } catch (e) {
+          setupError.textContent = e.message || "初始化失败";
+        }
+      }
+
+      async function login() {
+        const username = document.getElementById("username").value.trim() || "admin";
+        const password = document.getElementById("password").value;
+        const loginError = document.getElementById("loginError");
+        loginError.textContent = "";
+        if (!password) {
+          loginError.textContent = "请输入密码";
+          return;
+        }
+        try {
+          await api("/api/auth/login", {
+            method: "POST",
+            body: JSON.stringify({ username, password }),
+          });
+          await checkAuth();
+        } catch (e) {
+          loginError.textContent = e.message || "登录失败";
+        }
+      }
+
+      async function logout() {
+        await api("/api/auth/logout", { method: "POST", body: "{}" });
+        state = null;
+        selectedChatId = null;
+        chatSearchQuery = "";
+        chatSearchIndex = new Map();
+        chatSearchMessageIndex = new Map();
+        chatSearchMessageResults = [];
+        chatSearchResultCursor = -1;
+        chatSearchActiveMessageKey = "";
+        chatSearchActiveResultKey = "";
+        if (chatSearchTimer) {
+          window.clearTimeout(chatSearchTimer);
+          chatSearchTimer = null;
+        }
+        syncChatSearchInput();
+        showLogin(true);
+        showAuthPanels("login");
+      }
+
+      async function loadState() {
+        state = await api("/api/state", { method: "GET", headers: {} });
+        applyAppMeta(state?.app);
+        updateSettingsVisibility();
+        buildChatSearchIndex();
+        if (!selectedChatId && state.chats.length > 0) {
+          selectedChatId = state.chats[0].id;
+        }
+        if (selectedChatId && !state.chats.some((c) => c.id === selectedChatId)) {
+          selectedChatId = state.chats[0]?.id || null;
+        }
+        if (messageIndexChatId && !state.chats.some((c) => c.id === messageIndexChatId)) {
+          closeMessageIndex();
+        }
+        refreshChatSearchResults();
+        syncChatSearchInput();
+        render();
+      }
+
+      function render() {
+        renderChats();
+        renderMessages();
+        renderModels();
+        renderAgents();
+        renderAdminSettings();
+        fillSelectors();
+      }
+
+      function renderChats() {
+        const el = document.getElementById("chats");
+        if (!state.chats.length) {
+          el.innerHTML = `<div class="list-card" style="text-align:center;color:#6b7c88;">还没有对话，先创建一个吧</div>`;
+          return;
+        }
+        const filteredChats = getFilteredChats();
+        if (!filteredChats.length) {
+          el.innerHTML = `<div class="list-card" style="text-align:center;color:#6b7c88;">未找到匹配消息</div>`;
+          return;
+        }
+        el.innerHTML = filteredChats
+          .map((c) => {
+            const selected = selectedChatId === c.id ? "selected" : "";
+            return `
+              <div class="chat-item ${selected}" onclick="selectChat('${c.id}')">
+                <div class="chat-item-corner-actions">
+                  <button
+                    class="chat-item-delete"
+                    onclick="event.stopPropagation();deleteChat('${c.id}')"
+                    aria-label="删除对话"
+                    title="删除对话"
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path d="M4 7h16M9.5 4.5h5M10 11v6M14 11v6M7.5 7l1 12h7l1-12" />
+                    </svg>
+                  </button>
+                  <button
+                    class="chat-item-export"
+                    onclick="event.stopPropagation();downloadChatMarkdown('${c.id}')"
+                    aria-label="下载MD"
+                    title="下载MD"
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path d="M12 4v9M8 10l4 4 4-4M5 19h14" />
+                    </svg>
+                  </button>
+                  <button
+                    class="chat-item-outline"
+                    onclick="event.stopPropagation();openMessageIndex('${c.id}')"
+                    aria-label="消息目录"
+                    title="消息目录"
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path d="M6 7h12M6 12h12M6 17h9" />
+                    </svg>
+                  </button>
+                </div>
+                <div class="chat-item-title">${escapeHtml(c.title || "新对话")}</div>
+                <div class="chat-item-foot">
+                  <span>${(c.messages || []).length} 条消息</span>
+                </div>
+              </div>
+            `;
+          })
+          .join("");
+      }
+
+      function renderMessages() {
+        const chat = selectedChat();
+        const mainTitle = document.getElementById("chatTitleMain");
+        const subTitle = document.getElementById("chatTitleSub");
+        const msgEl = document.getElementById("messages");
+        const shouldScrollToBottom = shouldAutoScroll || isNearBottom(msgEl);
+
+        if (!chat) {
+          mainTitle.textContent = "消息";
+          subTitle.textContent = "请先创建一个会话";
+          msgEl.innerHTML = `
+            <div class="empty-state">
+              <div>还没有打开的会话</div>
+              <button onclick="newChat()">新建对话</button>
+            </div>
+          `;
+          return;
+        }
+
+        mainTitle.textContent = chat.title || "新对话";
+        subTitle.textContent = `${(chat.messages || []).length} 条消息`;
+
+        const messages = chat.messages || [];
+        if (!messages.length) {
+          msgEl.innerHTML = `
+            <div class="empty-state">
+              <div>开始你的第一条消息</div>
+            </div>
+          `;
+          return;
+        }
+
+        const renderedRows = messages
+          .map((m, idx) => {
+            const role = m.role === "user" ? "user" : "assistant";
+            const assistantName = getAssistantIdentityName(m, chat);
+            const name = role === "user" ? "你" : assistantName;
+            const avatar = role === "user" ? "U" : getAssistantAvatar(assistantName);
+            const messageKey = `${chat.id}:${idx}`;
+            const searchHitClass = messageKey === chatSearchActiveMessageKey ? "search-hit-active" : "";
+            return `
+              <div class="message-row ${role} ${searchHitClass}" data-msg-idx="${idx}">
+                <div class="message-avatar">${avatar}</div>
+                <div class="message-content">
+                  <div class="message-meta">${name}</div>
+                  <div class="message-bubble message-bubble-with-actions">
+                    <div class="message-bubble-main">${renderMessageContent(m.content || "")}${renderMessageAttachments(m.attachments || [])}</div>
+                    <div class="message-action-row">
+                      <button class="message-action-btn" type="button" onclick="copyMessagePlainText('${chat.id}', ${idx}, this)" aria-label="复制文本" title="复制文本">
+                        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                          <path d="M9 8h10v12H9zM15 8V5H5v12h4" />
+                        </svg>
+                      </button>
+                      <button class="message-action-btn" type="button" onclick="downloadMessageMarkdown('${chat.id}', ${idx})" aria-label="下载MD" title="下载MD">
+                        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                          <path d="M12 4v9M8 10l4 4 4-4M5 19h14" />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            `;
+          })
+          .join("");
+
+        const pendingRow =
+          pendingReply && pendingReply.chatId === chat.id
+            ? `
+              <div class="message-row assistant" id="pending-row-${chat.id}">
+                <div class="message-avatar">${getAssistantAvatar(pendingReply.agentName || "助手")}</div>
+                <div class="message-content">
+                  <div class="message-meta">${escapeHtml(pendingReply.agentName || "助手")}</div>
+                  <div class="message-bubble">
+                    ${
+                      pendingReply.mode === "typing"
+                        ? `<div class="typing-stream"><div class="pending-stream-render">${renderStreamingContent(
+                            pendingReply.content || "",
+                          )}</div><span class="typing-cursor"></span></div>`
+                        : `<div class="typing-indicator">
+                            <span>思考中</span>
+                            <span class="typing-dots">
+                              <span class="typing-dot"></span>
+                              <span class="typing-dot"></span>
+                              <span class="typing-dot"></span>
+                            </span>
+                          </div>`
+                    }
+                  </div>
+                </div>
+              </div>
+            `
+            : "";
+
+        msgEl.innerHTML = renderedRows + pendingRow;
+
+        applyCodeHighlighting(msgEl);
+        applySearchHighlights(msgEl);
+        if (shouldScrollToBottom) {
+          scrollMessagesToBottomIfNeeded(true);
+        } else {
+          shouldAutoScroll = false;
+        }
+      }
+
+      function renderModels() {
+        const el = document.getElementById("models");
+        if (!state.models.length) {
+          el.innerHTML = `<div class="list-card" style="color:#6b7c88;">还没有模型配置</div>`;
+          return;
+        }
+        const defaultModelId = state.default_model_id || "";
+        const admin = isAdmin();
+        el.innerHTML = state.models
+          .map((m) => {
+            const checked = m.id === defaultModelId ? "checked" : "";
+            const tag = m.id === defaultModelId ? `<span class="default-tag">默认模型</span>` : `<span></span>`;
+            const sub = admin ? `<div class="list-sub">${escapeHtml(m.base_url || "(未配置 base_url)")}</div>` : "";
+            const keySub = admin
+              ? `<div class="list-sub">key: ${escapeHtml(displayModelMaskedKey(m))}</div>`
+              : "";
+            const streamChecked = m.use_streaming === false ? "" : "checked";
+            const streamControl = admin
+              ? `
+                  <label class="default-check">
+                    <input type="checkbox" ${streamChecked} onchange="setModelStreaming('${m.id}', this.checked)" />
+                    流传输
+                  </label>
+                `
+              : `<span class="list-sub">流传输：${m.use_streaming === false ? "关" : "开"}</span>`;
+            return `
+              <div class="list-card">
+                <div class="list-title">${escapeHtml(m.name)}</div>
+                ${sub}
+                ${keySub}
+                <div class="list-actions">
+                  ${tag}
+                  ${streamControl}
+                  <label class="default-check">
+                    <input type="checkbox" ${checked} onchange="setDefaultModel('${m.id}', this.checked)" />
+                    设为默认
+                  </label>
+                  ${admin ? `<button class="danger-btn" onclick="deleteModel('${m.id}')">删除</button>` : ""}
+                </div>
+              </div>
+            `;
+          })
+          .join("");
+      }
+
+function renderAgents() {
+        const el = document.getElementById("agents");
+        if (!state.masks.length) {
+          el.innerHTML = `<div class="list-card" style="color:#6b7c88;">还没有 Agent 配置</div>`;
+          return;
+        }
+        const defaultAgentId = state.default_mask_id || "";
+        const admin = isAdmin();
+        el.innerHTML = state.masks
+          .map((m) => {
+            const checked = m.id === defaultAgentId ? "checked" : "";
+            const tags = [];
+            if (m.id === defaultAgentId) tags.push(`<span class="default-tag">默认 Agent</span>`);
+            if (m.is_public) tags.push(`<span class="default-tag">公共</span>`);
+            if (m.is_builtin) tags.push(`<span class="default-tag">内置</span>`);
+            const tagsHtml = tags.length ? tags.join(" ") : `<span></span>`;
+            const canEdit = Boolean(m.can_edit);
+            const canTogglePublic = admin && canEdit && !m.is_builtin;
+            const publicChecked = m.is_public ? "checked" : "";
+            const publicDisabled = canTogglePublic ? "" : "disabled";
+            return `
+              <div class="list-card">
+                <div class="list-title">${escapeHtml(m.name)}</div>
+                <div class="list-sub">${escapeHtml((m.prompt || "").slice(0, 120))}</div>
+                <div class="list-actions">
+                  ${tagsHtml}
+                  <label class="default-check">
+                    <input type="checkbox" ${checked} onchange="setDefaultAgent('${m.id}', this.checked)" />
+                    设为默认
+                  </label>
+                  <label class="default-check">
+                    <input type="checkbox" ${publicChecked} ${publicDisabled} onchange="setAgentPublic('${m.id}', this.checked)" />
+                    设为公共
+                  </label>
+                  ${
+                    canEdit
+                      ? `<button class="ghost-btn mini-btn" onclick="editAgent('${m.id}')">编辑</button>
+                         <button class="danger-btn mini-btn" onclick="deleteAgent('${m.id}')">删除</button>`
+                      : `<span class="list-sub">只读（公共）</span>`
+                  }
+                </div>
+              </div>
+            `;
+          })
+          .join("");
+      }
+
+      function fillSelectors() {
+        const modelSel = document.getElementById("chatModel");
+        const agentSel = document.getElementById("chatAgent");
+        const reasoningSel = document.getElementById("chatReasoning");
+        const chat = selectedChat();
+        const selectedModelId = chat?.model_id || state.default_model_id || "";
+        const selectedAgentId = chat?.mask_id || state.default_mask_id || "";
+        const selectedReasoning = normalizeReasoningEffort(chat?.reasoning_effort || "");
+        const selectableModels = (state.models || []).filter((m) => m.enabled !== false);
+
+        if (!selectableModels.length) {
+          modelSel.innerHTML = `<option value="">(请先配置模型)</option>`;
+        } else {
+          modelSel.innerHTML = selectableModels
+            .map(
+              (m) =>
+                `<option value="${m.id}" ${m.id === selectedModelId ? "selected" : ""}>${escapeHtml(m.name)}</option>`,
+            )
+            .join("");
+        }
+
+        agentSel.innerHTML =
+          `<option value="">不使用Agent</option>` +
+          state.masks
+            .map(
+              (m) =>
+                `<option value="${m.id}" ${m.id === selectedAgentId ? "selected" : ""}>${escapeHtml(m.name)}</option>`,
+            )
+            .join("");
+
+        if (reasoningSel) {
+          reasoningSel.innerHTML = REASONING_EFFORT_OPTIONS.map(
+            (item) =>
+              `<option value="${item.value}" ${item.value === selectedReasoning ? "selected" : ""}>${item.label}</option>`,
+          ).join("");
+        }
+      }
+
+      function selectorConfigPayload() {
+        const model_id = document.getElementById("chatModel")?.value || "";
+        const mask_id = document.getElementById("chatAgent")?.value || "";
+        const reasoning_effort = normalizeReasoningEffort(
+          document.getElementById("chatReasoning")?.value || "",
+        );
+        return {
+          model_id: model_id || null,
+          mask_id: mask_id || null,
+          reasoning_effort: reasoning_effort || null,
+        };
+      }
+
+      async function saveCurrentChatConfig() {
+        const chat = selectedChat();
+        if (!chat) return;
+        const payload = selectorConfigPayload();
+        if (
+          (chat.model_id || null) === payload.model_id &&
+          (chat.mask_id || null) === payload.mask_id &&
+          (normalizeReasoningEffort(chat.reasoning_effort || "") || null) === payload.reasoning_effort
+        ) {
+          return;
+        }
+        try {
+          const res = await api(`/api/chats/${chat.id}/config`, {
+            method: "POST",
+            body: JSON.stringify(payload),
+          });
+          const nextChat = res?.chat;
+          if (nextChat && Array.isArray(state?.chats)) {
+            const idx = state.chats.findIndex((c) => c.id === nextChat.id);
+            if (idx >= 0) {
+              state.chats[idx] = nextChat;
+            }
+          } else {
+            chat.model_id = payload.model_id;
+            chat.mask_id = payload.mask_id;
+            chat.reasoning_effort = payload.reasoning_effort;
+          }
+        } catch (e) {
+          document.getElementById("sendError").textContent = e.message || "保存会话配置失败";
+          await loadState();
+        }
+      }
+
+      function resetAgentForm() {
+        editingAgentId = null;
+        document.getElementById("agentName").value = "";
+        document.getElementById("agentPrompt").value = "";
+        document.getElementById("agentFormTitle").textContent = "新增 Agent";
+        document.getElementById("saveAgentBtn").textContent = "保存 Agent";
+        document.getElementById("cancelEditAgentBtn").style.display = "none";
+      }
+
+      function editAgent(id) {
+        const agent = (state?.masks || []).find((m) => m.id === id);
+        if (!agent || !agent.can_edit) return;
+        editingAgentId = id;
+        document.getElementById("agentName").value = agent.name || "";
+        document.getElementById("agentPrompt").value = agent.prompt || "";
+        document.getElementById("agentFormTitle").textContent = "编辑 Agent";
+        document.getElementById("saveAgentBtn").textContent = "更新 Agent";
+        document.getElementById("cancelEditAgentBtn").style.display = "inline-block";
+        switchSettingsTab("agents");
+      }
+
+      async function saveModel() {
+        if (!isAdmin()) return;
+        const name = document.getElementById("modelName").value.trim();
+        const base_url = document.getElementById("modelUrl").value.trim();
+        const api_key = document.getElementById("modelKey").value.trim();
+        if (!name) return;
+        await api("/api/models", {
+          method: "POST",
+          body: JSON.stringify({
+            name,
+            base_url,
+            api_key,
+            provider: "openai-compatible",
+            enabled: true,
+            use_streaming: true,
+          }),
+        });
+        document.getElementById("modelName").value = "";
+        document.getElementById("modelUrl").value = "";
+        document.getElementById("modelKey").value = "";
+        await loadState();
+      }
+
+      async function deleteModel(id) {
+        if (!isAdmin()) return;
+        if (!(await showConfirmDialog("确认删除这个模型吗？", "删除模型"))) return;
+        await api(`/api/models/${id}`, { method: "DELETE", headers: {} });
+        await loadState();
+      }
+
+      async function setModelStreaming(id, checked) {
+        if (!isAdmin()) return;
+        await api(`/api/models/${id}/streaming`, {
+          method: "POST",
+          body: JSON.stringify({
+            use_streaming: !!checked,
+          }),
+        });
+        await loadState();
+      }
+
+      async function setDefaultModel(id, checked) {
+        if (!checked) {
+          if (!(await showConfirmDialog("要取消默认模型吗？", "取消默认模型"))) {
+            await loadState();
+            return;
+          }
+          await api("/api/default-model", {
+            method: "POST",
+            body: JSON.stringify({ model_id: null }),
+          });
+          await loadState();
+          return;
+        }
+        await api("/api/default-model", {
+          method: "POST",
+          body: JSON.stringify({ model_id: id }),
+        });
+        await loadState();
+      }
+
+      async function saveAgent() {
+        const name = document.getElementById("agentName").value.trim();
+        const prompt = document.getElementById("agentPrompt").value;
+        if (!name) return;
+        await api("/api/masks", {
+          method: "POST",
+          body: JSON.stringify({ id: editingAgentId, name, prompt }),
+        });
+        resetAgentForm();
+        await loadState();
+      }
+
+      async function deleteAgent(id) {
+        if (!(await showConfirmDialog("确认删除这个 Agent 吗？", "删除 Agent"))) return;
+        await api(`/api/masks/${id}`, { method: "DELETE", headers: {} });
+        if (editingAgentId === id) {
+          resetAgentForm();
+        }
+        await loadState();
+      }
+
+      async function setDefaultAgent(id, checked) {
+        if (!checked) {
+          if (!(await showConfirmDialog("要取消默认 Agent 吗？", "取消默认 Agent"))) {
+            await loadState();
+            return;
+          }
+          await api("/api/default-agent", {
+            method: "POST",
+            body: JSON.stringify({ agent_id: null }),
+          });
+          await loadState();
+          return;
+        }
+        await api("/api/default-agent", {
+          method: "POST",
+          body: JSON.stringify({ agent_id: id }),
+        });
+        await loadState();
+      }
+
+      async function setAgentPublic(id, checked) {
+        if (!isAdmin()) {
+          await loadState();
+          return;
+        }
+        try {
+          await api(`/api/masks/${id}/public`, {
+            method: "POST",
+            body: JSON.stringify({ is_public: Boolean(checked) }),
+          });
+          await loadState();
+        } catch (e) {
+          document.getElementById("sendError").textContent = e.message || "设置公共 Agent 失败";
+          await loadState();
+        }
+      }
+
+      function renderAdminSettings() {
+        if (!isAdmin()) {
+          document.getElementById("usersList").innerHTML = "";
+          return;
+        }
+        document.getElementById("appDisplayTitle").value = state?.app?.title || "";
+        document.getElementById("appDisplaySubtitle").value = state?.app?.subtitle || "";
+        const fallbackTtl = Number(state?.app?.message_ttl_hours || 0);
+        document.getElementById("messageTextTtlHours").value = Number(
+          state?.app?.message_text_ttl_hours ?? fallbackTtl,
+        );
+        document.getElementById("messageMediaTtlHours").value = Number(
+          state?.app?.message_media_ttl_hours ?? fallbackTtl,
+        );
+        renderUsers();
+      }
+
+      function renderUsers() {
+        const users = Array.isArray(state?.users) ? state.users : [];
+        const el = document.getElementById("usersList");
+        if (!users.length) {
+          el.innerHTML = `<div class="list-card" style="color:#6b7c88;">暂无账号</div>`;
+          return;
+        }
+        const currentUserId = state?.current_user?.id || "";
+        el.innerHTML = users
+          .map((u) => {
+            const isSelf = u.id === currentUserId;
+            const roleText = u.role === "admin" ? "管理员" : "普通用户";
+            return `
+              <div class="list-card">
+                <div class="list-title">${escapeHtml(u.username)} <span class="list-sub">(${roleText})</span></div>
+                <div class="list-actions">
+                  <button class="ghost-btn mini-btn" onclick="resetUserPassword('${u.id}')">重置密码</button>
+                  <button class="danger-btn mini-btn" ${isSelf ? "disabled" : ""} onclick="deleteUser('${u.id}')">删除账号</button>
+                </div>
+              </div>
+            `;
+          })
+          .join("");
+      }
+
+      async function saveAppSettings() {
+        if (!isAdmin()) return;
+        const app_title = document.getElementById("appDisplayTitle").value.trim();
+        const app_subtitle = document.getElementById("appDisplaySubtitle").value.trim();
+        const message_text_ttl_hours = Number(document.getElementById("messageTextTtlHours").value || 0);
+        const message_media_ttl_hours = Number(document.getElementById("messageMediaTtlHours").value || 0);
+        await api("/api/admin/app-settings", {
+          method: "POST",
+          body: JSON.stringify({
+            app_title: app_title || null,
+            app_subtitle: app_subtitle || null,
+            message_text_ttl_hours: Number.isFinite(message_text_ttl_hours)
+              ? Math.max(0, Math.floor(message_text_ttl_hours))
+              : 0,
+            message_media_ttl_hours: Number.isFinite(message_media_ttl_hours)
+              ? Math.max(0, Math.floor(message_media_ttl_hours))
+              : 0,
+          }),
+        });
+        await loadState();
+      }
+
+      async function purgeAllChats() {
+        if (!isAdmin()) return;
+        const ok = await showConfirmDialog(
+          "将清空全部会话数据（含消息、附件文本与图片记录），且不可恢复。确认继续吗？",
+          "删除全部会话数据",
+        );
+        if (!ok) return;
+        await api("/api/admin/chats/clear", {
+          method: "POST",
+          body: "{}",
+        });
+        selectedChatId = null;
+        if (messageIndexChatId) {
+          closeMessageIndex();
+        }
+        await loadState();
+      }
+
+      async function createUser() {
+        if (!isAdmin()) return;
+        const errorEl = document.getElementById("adminUserError");
+        errorEl.textContent = "";
+        const username = document.getElementById("newUsername").value.trim();
+        const password = document.getElementById("newUserPassword").value;
+        const role = document.getElementById("newUserRole").value || "user";
+        if (!username || !password) {
+          errorEl.textContent = "用户名和密码不能为空";
+          return;
+        }
+        try {
+          await api("/api/admin/users", {
+            method: "POST",
+            body: JSON.stringify({ username, password, role }),
+          });
+          document.getElementById("newUsername").value = "";
+          document.getElementById("newUserPassword").value = "";
+          document.getElementById("newUserRole").value = "user";
+          await loadState();
+        } catch (e) {
+          errorEl.textContent = e.message || "创建失败";
+        }
+      }
+
+      async function resetUserPassword(userId) {
+        if (!isAdmin()) return;
+        const password = window.prompt("请输入新密码：");
+        if (!password) return;
+        await api(`/api/admin/users/${userId}/password`, {
+          method: "POST",
+          body: JSON.stringify({ password }),
+        });
+      }
+
+      async function deleteUser(userId) {
+        if (!isAdmin()) return;
+        if (!(await showConfirmDialog("确认删除这个账号吗？", "删除账号"))) return;
+        await api(`/api/admin/users/${userId}`, { method: "DELETE", headers: {} });
+        await loadState();
+      }
+
+      async function newChat() {
+        const created = await api("/api/chats", {
+          method: "POST",
+          body: JSON.stringify({ title: "新对话" }),
+        });
+        if (created?.chat?.id) {
+          selectedChatId = created.chat.id;
+        }
+        if (messageIndexChatId && messageIndexChatId !== selectedChatId) {
+          closeMessageIndex();
+        }
+        shouldAutoScroll = true;
+        await loadState();
+      }
+
+      async function deleteChat(id) {
+        if (!(await showConfirmDialog("确认删除这个对话吗？", "删除对话"))) return;
+        await api(`/api/chats/${id}`, { method: "DELETE", headers: {} });
+        if (selectedChatId === id) selectedChatId = null;
+        await loadState();
+      }
+
+      function selectChat(id) {
+        selectedChatId = id;
+        if (messageIndexChatId && messageIndexChatId !== id) {
+          closeMessageIndex();
+        }
+        if (normalizeSearchText(chatSearchQuery)) {
+          const hitIdx = chatSearchMessageResults.findIndex((item) => item.chatId === id);
+          if (hitIdx >= 0) {
+            chatSearchResultCursor = hitIdx;
+            chatSearchActiveMessageKey = chatSearchMessageResults[hitIdx].key;
+            chatSearchActiveResultKey = chatSearchMessageResults[hitIdx].id;
+          }
+        }
+        updateChatSearchNavigator();
+        shouldAutoScroll = true;
+        render();
+        if (window.innerWidth <= 900) {
+          toggleSidebar(false);
+        }
+      }
+
+      async function sendMessage() {
+        if (sending) {
+          stopStreaming();
+          return;
+        }
+        const errorEl = document.getElementById("sendError");
+        const messageInput = document.getElementById("messageText");
+        const message = messageInput.value.trim();
+        const outgoingAttachments = serializeOutgoingAttachments();
+        if (!message && !outgoingAttachments.length) {
+          errorEl.textContent = "请输入消息或添加附件";
+          return;
+        }
+
+        const model_id = document.getElementById("chatModel").value;
+        if (!model_id) {
+          errorEl.textContent = "请先选择模型";
+          return;
+        }
+        const selectedModel = (state?.models || []).find((m) => m.id === model_id);
+        const isStreamingEnabled = selectedModel?.use_streaming !== false;
+        const agent_id = document.getElementById("chatAgent").value || null;
+        const selectedAgentName = findMaskById(agent_id)?.name || "";
+        const reasoning_effort = normalizeReasoningEffort(document.getElementById("chatReasoning")?.value || "");
+
+        let chat = selectedChat();
+        if (!chat) {
+          const created = await api("/api/chats", {
+            method: "POST",
+            body: JSON.stringify({
+              title: "新对话",
+              model_id: model_id || null,
+              mask_id: agent_id,
+              reasoning_effort: reasoning_effort || null,
+            }),
+          });
+          if (created?.chat?.id) {
+            selectedChatId = created.chat.id;
+            chat = created.chat;
+            if (!Array.isArray(state?.chats)) {
+              state.chats = [];
+            }
+            if (!state.chats.some((c) => c.id === chat.id)) {
+              state.chats.unshift(chat);
+            }
+          } else {
+            await loadState();
+            chat = selectedChat();
+          }
+          if (!chat) {
+            errorEl.textContent = "创建会话失败，请稍后再试";
+            return;
+          }
+        }
+
+        const originalMessage = message;
+        const originalPendingAttachments = pendingAttachments.map((att) => ({ ...att }));
+        messageInput.value = "";
+        clearPendingAttachments();
+        errorEl.textContent = "";
+        setSending(true);
+
+        const optimisticUserMessage = {
+          id: `local-${Date.now()}`,
+          role: "user",
+          content: originalMessage,
+          created_at: Math.floor(Date.now() / 1000),
+        };
+        if (outgoingAttachments.length) {
+          optimisticUserMessage.attachments = outgoingAttachments.map((att) => ({ ...att }));
+        }
+        if (!Array.isArray(chat.messages)) {
+          chat.messages = [];
+        }
+        chat.messages.push(optimisticUserMessage);
+        const currentTitle = String(chat.title || "").trim();
+        if (!currentTitle || currentTitle === "新对话") {
+          const fallbackTitle = originalMessage || outgoingAttachments[0]?.name || "新对话";
+          chat.title = buildChatTitlePreview(fallbackTitle);
+        }
+
+        pendingReply = {
+          chatId: chat.id,
+          startedAt: Date.now(),
+          mode: "waiting",
+          content: "",
+          agentName: selectedAgentName || "助手",
+          deferRender: false,
+        };
+        shouldAutoScroll = true;
+        renderChats();
+        renderMessages();
+
+        const abortController = isStreamingEnabled ? new AbortController() : null;
+        streamAbortController = abortController;
+        let abortedByUser = false;
+        try {
+          if (!isStreamingEnabled) {
+            await api("/api/chat", {
+              method: "POST",
+              body: JSON.stringify({
+                chat_id: chat.id,
+                message: originalMessage,
+                model_id,
+                mask_id: agent_id,
+                reasoning_effort: reasoning_effort || null,
+                attachments: outgoingAttachments,
+              }),
+            });
+            await loadState();
+            return;
+          }
+
+          const response = await fetch("/api/chat/stream", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            signal: abortController.signal,
+            body: JSON.stringify({
+              chat_id: chat.id,
+              message: originalMessage,
+              model_id,
+              mask_id: agent_id,
+              reasoning_effort: reasoning_effort || null,
+              attachments: outgoingAttachments,
+            }),
+          });
+          if (!response.ok) {
+            const text = await response.text();
+            let messageText = text || "request failed";
+            try {
+              const payload = JSON.parse(text);
+              if (typeof payload?.detail === "string" && payload.detail.trim()) {
+                messageText = payload.detail;
+              } else if (
+                typeof payload?.error?.message === "string" &&
+                payload.error.message.trim()
+              ) {
+                messageText = payload.error.message;
+              }
+            } catch (_) {}
+            throw new Error(messageText);
+          }
+
+          if (!response.body) {
+            throw new Error("流式响应读取失败");
+          }
+
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder("utf-8");
+          let buffer = "";
+
+          const processSseBlock = (block) => {
+            if (!block) return;
+            const dataText = block
+              .split("\n")
+              .map((line) => line.trim())
+              .filter((line) => line.startsWith("data:"))
+              .map((line) => line.slice(5).trim())
+              .join("\n");
+            if (!dataText) return;
+            let payload = null;
+            try {
+              payload = JSON.parse(dataText);
+            } catch (_) {
+              return;
+            }
+            if (payload.type === "delta") {
+              if (!pendingReply || pendingReply.chatId !== chat.id) return;
+              if (pendingReply.mode !== "typing") {
+                pendingReply.mode = "typing";
+                pendingReply.content = "";
+                renderMessages();
+              }
+              pendingReply.content += String(payload.delta || "");
+              updatePendingReplyDom();
+              return;
+            }
+            if (payload.type === "error") {
+              throw new Error(payload.error || "流式请求失败");
+            }
+          };
+
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const blocks = buffer.split("\n\n");
+            buffer = blocks.pop() || "";
+            for (const block of blocks) {
+              processSseBlock(block.trim());
+            }
+          }
+          if (buffer.trim()) {
+            processSseBlock(buffer.trim());
+          }
+          await loadState();
+        } catch (e) {
+          if (e?.name === "AbortError") {
+            abortedByUser = true;
+            errorEl.textContent = "";
+            await loadState();
+          } else {
+            errorEl.textContent = "发送失败：" + e.message;
+            messageInput.value = originalMessage;
+            pendingAttachments = originalPendingAttachments;
+            renderComposeAttachments();
+            await loadState();
+          }
+        } finally {
+          streamAbortController = null;
+          stopTypingAnimation();
+          pendingReply = null;
+          renderMessages();
+          setSending(false);
+          if (abortedByUser) {
+            errorEl.textContent = "";
+          }
+        }
+      }
+
+      document.getElementById("messageText").addEventListener("keydown", (e) => {
+        if (e.key !== "Enter") return;
+        if (e.altKey) {
+          e.preventDefault();
+          insertTextAtCursor(e.target, "\n");
+          return;
+        }
+        if (!e.isComposing) {
+          e.preventDefault();
+          sendMessage();
+        }
+      });
+
+      document.getElementById("messageText").addEventListener("paste", async (e) => {
+        const items = Array.from(e.clipboardData?.items || []);
+        const files = items
+          .filter((item) => item.kind === "file")
+          .map((item) => item.getAsFile())
+          .filter(Boolean);
+        if (!files.length) return;
+        e.preventDefault();
+        await addFilesToPending(files);
+      });
+
+      document.getElementById("filePicker").addEventListener("change", async (e) => {
+        await addFilesToPending(e.target.files || []);
+        e.target.value = "";
+      });
+
+      document.getElementById("chatSearchInput").addEventListener("input", (e) => {
+        const nextQuery = e.target.value || "";
+        if (chatSearchTimer) {
+          window.clearTimeout(chatSearchTimer);
+        }
+        chatSearchTimer = window.setTimeout(() => {
+          applyChatSearch(nextQuery);
+          chatSearchTimer = null;
+        }, CHAT_SEARCH_DEBOUNCE_MS);
+      });
+
+      document.getElementById("chatSearchInput").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          jumpToSearchResult(e.shiftKey ? -1 : 1);
+          return;
+        }
+        if (e.key === "Escape") {
+          e.preventDefault();
+          clearChatSearch();
+        }
+      });
+
+      document.getElementById("chatModel").addEventListener("change", () => {
+        saveCurrentChatConfig();
+      });
+
+      document.getElementById("chatAgent").addEventListener("change", () => {
+        saveCurrentChatConfig();
+      });
+
+      document.getElementById("chatReasoning").addEventListener("change", () => {
+        saveCurrentChatConfig();
+      });
+
+      document.addEventListener("selectionchange", () => {
+        if (!pendingReply?.deferRender) return;
+        if (!hasActiveMessageSelection()) {
+          updatePendingReplyDom();
+        }
+      });
+
+      document.getElementById("username").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          login();
+        }
+      });
+
+      document.getElementById("password").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          login();
+        }
+      });
+
+      ["setupAppTitle", "setupAppSubtitle", "setupAdminPassword", "setupAdminPasswordConfirm", "setupModelName", "setupModelUrl", "setupModelKey"].forEach(
+        (id) => {
+          const el = document.getElementById(id);
+          if (!el) return;
+          el.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              initApp();
+            }
+          });
+        },
+      );
+
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && imagePreviewOpen) {
+          e.preventDefault();
+          closeImagePreview();
+          return;
+        }
+        if (e.key === "Escape" && confirmResolver) {
+          e.preventDefault();
+          closeConfirmDialog(false);
+        }
+      });
+
+      document.addEventListener("click", (e) => {
+        const target = e.target;
+        if (!(target instanceof HTMLElement)) return;
+        if (target.matches("[data-copy-code]")) {
+          copyCodeFromBlock(target);
+        }
+      });
+
+      initTheme();
+      initFontSettings();
+      renderComposeAttachments();
+      initMessageScrollTracking();
+      checkAuth();
+    </script>
+  </body>
+</html>
