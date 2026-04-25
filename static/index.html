@@ -2163,6 +2163,23 @@
               </div>
             </div>
           </div>
+          <div class="form-card" style="margin-bottom: 10px;">
+            <div class="form-title">消息保留策略</div>
+            <div class="retention-grid">
+              <div class="retention-item">
+                <label for="messageTextTtlHours">纯文本保存小时数</label>
+                <input id="messageTextTtlHours" type="number" min="0" step="1" placeholder="例如 72（0 表示不自动删除）" />
+              </div>
+              <div class="retention-item">
+                <label for="messageMediaTtlHours">图片/文件保存小时数</label>
+                <input id="messageMediaTtlHours" type="number" min="0" step="1" placeholder="例如 24（0 表示不自动删除）" />
+              </div>
+            </div>
+            <button style="width: 100%;" onclick="saveRetentionSettings()">保存个人设置</button>
+            <button class="danger-btn" style="width: 100%; margin-top: 8px;" onclick="purgeMyChats()">
+              删除我的全部会话数据
+            </button>
+          </div>
         </div>
         <div id="settingsModels" class="settings-body">
           <div id="models"></div>
@@ -2201,22 +2218,12 @@
             <div class="form-title">应用信息</div>
             <input id="appDisplayTitle" placeholder="应用标题" />
             <input id="appDisplaySubtitle" placeholder="应用副标题" />
+            <button style="width: 100%; margin-top: 8px;" onclick="saveAppSettings()">保存应用信息</button>
           </div>
           <div class="form-card" style="margin-bottom: 10px;">
-            <div class="form-title">消息保留策略</div>
-            <div class="retention-grid">
-              <div class="retention-item">
-                <label for="messageTextTtlHours">纯文本保存小时数</label>
-                <input id="messageTextTtlHours" type="number" min="0" step="1" placeholder="例如 72（0 表示不自动删除）" />
-              </div>
-              <div class="retention-item">
-                <label for="messageMediaTtlHours">图片/文件保存小时数</label>
-                <input id="messageMediaTtlHours" type="number" min="0" step="1" placeholder="例如 24（0 表示不自动删除）" />
-              </div>
-            </div>
-            <button style="width: 100%;" onclick="saveAppSettings()">保存应用设置</button>
-            <button class="danger-btn" style="width: 100%; margin-top: 8px;" onclick="purgeAllChats()">
-              删除全部会话数据
+            <div class="form-title">管理员操作</div>
+            <button class="danger-btn" style="width: 100%;" onclick="purgeAllChats()">
+              删除所有用户会话数据
             </button>
           </div>
           <div class="form-card" style="margin-bottom: 10px;">
@@ -4129,8 +4136,20 @@
         renderMessages();
         renderModels();
         renderAgents();
+        renderUserRetentionSettings();
         renderAdminSettings();
         fillSelectors();
+      }
+
+      function renderUserRetentionSettings() {
+        const fallbackTtl = Number(state?.app?.message_ttl_hours || 0);
+        const currentUser = state?.current_user || {};
+        document.getElementById("messageTextTtlHours").value = Number(
+          currentUser.message_text_ttl_hours ?? fallbackTtl,
+        );
+        document.getElementById("messageMediaTtlHours").value = Number(
+          currentUser.message_media_ttl_hours ?? fallbackTtl,
+        );
       }
 
       function renderChats() {
@@ -4619,13 +4638,6 @@ function renderAgents() {
         }
         document.getElementById("appDisplayTitle").value = state?.app?.title || "";
         document.getElementById("appDisplaySubtitle").value = state?.app?.subtitle || "";
-        const fallbackTtl = Number(state?.app?.message_ttl_hours || 0);
-        document.getElementById("messageTextTtlHours").value = Number(
-          state?.app?.message_text_ttl_hours ?? fallbackTtl,
-        );
-        document.getElementById("messageMediaTtlHours").value = Number(
-          state?.app?.message_media_ttl_hours ?? fallbackTtl,
-        );
         renderUsers();
       }
 
@@ -4654,17 +4666,12 @@ function renderAgents() {
           .join("");
       }
 
-      async function saveAppSettings() {
-        if (!isAdmin()) return;
-        const app_title = document.getElementById("appDisplayTitle").value.trim();
-        const app_subtitle = document.getElementById("appDisplaySubtitle").value.trim();
+      async function saveRetentionSettings() {
         const message_text_ttl_hours = Number(document.getElementById("messageTextTtlHours").value || 0);
         const message_media_ttl_hours = Number(document.getElementById("messageMediaTtlHours").value || 0);
-        await api("/api/admin/app-settings", {
+        await api("/api/user/retention-settings", {
           method: "POST",
           body: JSON.stringify({
-            app_title: app_title || null,
-            app_subtitle: app_subtitle || null,
             message_text_ttl_hours: Number.isFinite(message_text_ttl_hours)
               ? Math.max(0, Math.floor(message_text_ttl_hours))
               : 0,
@@ -4676,11 +4683,42 @@ function renderAgents() {
         await loadState();
       }
 
+      async function saveAppSettings() {
+        if (!isAdmin()) return;
+        const app_title = document.getElementById("appDisplayTitle").value.trim();
+        const app_subtitle = document.getElementById("appDisplaySubtitle").value.trim();
+        await api("/api/admin/app-settings", {
+          method: "POST",
+          body: JSON.stringify({
+            app_title: app_title || null,
+            app_subtitle: app_subtitle || null,
+          }),
+        });
+        await loadState();
+      }
+
+      async function purgeMyChats() {
+        const ok = await showConfirmDialog(
+          "将清空你自己的全部会话数据（含消息、附件文本与图片记录），且不可恢复。确认继续吗？",
+          "删除我的全部会话数据",
+        );
+        if (!ok) return;
+        await api("/api/chats/clear", {
+          method: "POST",
+          body: "{}",
+        });
+        selectedChatId = null;
+        if (messageIndexChatId) {
+          closeMessageIndex();
+        }
+        await loadState();
+      }
+
       async function purgeAllChats() {
         if (!isAdmin()) return;
         const ok = await showConfirmDialog(
-          "将清空全部会话数据（含消息、附件文本与图片记录），且不可恢复。确认继续吗？",
-          "删除全部会话数据",
+          "将清空所有用户的全部会话数据（含消息、附件文本与图片记录），且不可恢复。确认继续吗？",
+          "删除所有用户会话数据",
         );
         if (!ok) return;
         await api("/api/admin/chats/clear", {
