@@ -60,6 +60,7 @@ DEFAULT_APP_SUBTITLE = "Build your own AI assistant"
 DEFAULT_MODEL_NAME = os.getenv("DEFAULT_MODEL_NAME", "gpt-5.5").strip() or "gpt-5.5"
 DEFAULT_BASE_URL = os.getenv("DEFAULT_BASE_URL", "").strip()
 DEFAULT_API_KEY = os.getenv("DEFAULT_API_KEY", "").strip()
+MAX_RETENTION_HOURS = 24 * 365 * 5
 
 BUILTIN_OPS_AGENT_NAME = "运维专家"
 BUILTIN_OPS_AGENT_PROMPT = """你是一名资深运维/运维开发工程师助手。
@@ -180,6 +181,15 @@ def _safe_int(value: Any, default: int = 0) -> int:
         return int(value)
     except Exception:
         return default
+
+
+def _normalize_retention_hours(value: Any, default: int = 0) -> int:
+    ttl = _safe_int(value, default)
+    if ttl < 0:
+        ttl = 0
+    if ttl > MAX_RETENTION_HOURS:
+        ttl = MAX_RETENTION_HOURS
+    return ttl
 
 
 def _normalize_role(value: Any) -> str:
@@ -375,12 +385,16 @@ def _describe_api_action(method: str, path: str) -> str:
         return "删除Agent"
     if path == "/api/admin/app-settings":
         return "修改应用设置"
+    if path == "/api/user/retention-settings":
+        return "修改个人消息保留策略"
     if path == "/api/default-model":
         return "设置默认模型"
     if path == "/api/default-agent":
         return "设置默认Agent"
     if path == "/api/chats":
         return "读取会话列表" if method_u == "GET" else "创建会话"
+    if path == "/api/chats/clear":
+        return "清空个人会话数据"
     if method_u == "POST" and path.startswith("/api/chats/") and path.endswith("/config"):
         return "修改会话参数"
     if method_u == "DELETE" and path.startswith("/api/chats/"):
@@ -396,7 +410,7 @@ def _describe_api_action(method: str, path: str) -> str:
     if method_u == "DELETE" and path.startswith("/api/admin/users/"):
         return "删除用户"
     if path == "/api/admin/chats/clear":
-        return "清空全部会话数据"
+        return "清空所有用户会话数据"
     return "API访问"
 
 
@@ -1313,7 +1327,11 @@ def _normalize_mask(mask: Any) -> dict[str, Any] | None:
     }
 
 
-def _normalize_user(user: Any) -> dict[str, Any] | None:
+def _normalize_user(
+    user: Any,
+    default_text_ttl_hours: int = 0,
+    default_media_ttl_hours: int = 0,
+) -> dict[str, Any] | None:
     if not isinstance(user, dict):
         return None
     ts = now_ts()
@@ -1329,6 +1347,14 @@ def _normalize_user(user: Any) -> dict[str, Any] | None:
         "enabled": _normalize_bool(user.get("enabled"), True),
         "default_model_id": user.get("default_model_id"),
         "default_mask_id": user.get("default_mask_id"),
+        "message_text_ttl_hours": _normalize_retention_hours(
+            user.get("message_text_ttl_hours"),
+            default_text_ttl_hours,
+        ),
+        "message_media_ttl_hours": _normalize_retention_hours(
+            user.get("message_media_ttl_hours"),
+            default_media_ttl_hours,
+        ),
         "created_at": _safe_int(user.get("created_at"), ts),
         "updated_at": _safe_int(user.get("updated_at"), ts),
     }
@@ -1348,23 +1374,9 @@ def _normalize_v2_store(data: dict[str, Any]) -> tuple[dict[str, Any], bool]:
     if not isinstance(app_meta.get("subtitle"), str) or not app_meta.get("subtitle").strip():
         app_meta["subtitle"] = DEFAULT_APP_SUBTITLE
         changed = True
-    max_ttl_hours = 24 * 365 * 5
-    legacy_ttl = _safe_int(app_meta.get("message_ttl_hours"), 0)
-    if legacy_ttl < 0:
-        legacy_ttl = 0
-    if legacy_ttl > max_ttl_hours:
-        legacy_ttl = max_ttl_hours
-
-    text_ttl = _safe_int(app_meta.get("message_text_ttl_hours"), legacy_ttl)
-    media_ttl = _safe_int(app_meta.get("message_media_ttl_hours"), legacy_ttl)
-    if text_ttl < 0:
-        text_ttl = 0
-    if text_ttl > max_ttl_hours:
-        text_ttl = max_ttl_hours
-    if media_ttl < 0:
-        media_ttl = 0
-    if media_ttl > max_ttl_hours:
-        media_ttl = max_ttl_hours
+    legacy_ttl = _normalize_retention_hours(app_meta.get("message_ttl_hours"), 0)
+    text_ttl = _normalize_retention_hours(app_meta.get("message_text_ttl_hours"), legacy_ttl)
+    media_ttl = _normalize_retention_hours(app_meta.get("message_media_ttl_hours"), legacy_ttl)
 
     if app_meta.get("message_text_ttl_hours") != text_ttl:
         app_meta["message_text_ttl_hours"] = text_ttl
@@ -1400,7 +1412,11 @@ def _normalize_v2_store(data: dict[str, Any]) -> tuple[dict[str, Any], bool]:
     seen_user_ids: set[str] = set()
     seen_usernames: set[str] = set()
     for user in raw_users:
-        normalized = _normalize_user(user)
+        normalized = _normalize_user(
+            user,
+            default_text_ttl_hours=text_ttl,
+            default_media_ttl_hours=media_ttl,
+        )
         if normalized is None:
             changed = True
             continue
@@ -1688,26 +1704,40 @@ def _delete_local_attachment_files(
     return changed
 
 
+def _retention_settings_for_user(user: dict[str, Any] | None, app_meta: dict[str, Any] | None = None) -> tuple[int, int]:
+    legacy_ttl = _normalize_retention_hours((app_meta or {}).get("message_ttl_hours"), 0)
+    text_ttl_hours = _normalize_retention_hours(
+        (user or {}).get("message_text_ttl_hours"),
+        legacy_ttl,
+    )
+    media_ttl_hours = _normalize_retention_hours(
+        (user or {}).get("message_media_ttl_hours"),
+        legacy_ttl,
+    )
+    return text_ttl_hours, media_ttl_hours
+
+
 def _apply_message_retention(store: dict[str, Any]) -> bool:
     app_meta = store.get("app") or {}
-    legacy_ttl = _safe_int(app_meta.get("message_ttl_hours"), 0)
-    text_ttl_hours = _safe_int(app_meta.get("message_text_ttl_hours"), legacy_ttl)
-    media_ttl_hours = _safe_int(app_meta.get("message_media_ttl_hours"), legacy_ttl)
-    if text_ttl_hours <= 0 and media_ttl_hours <= 0:
-        return False
-
     current_ts = now_ts()
-    text_cutoff = current_ts - text_ttl_hours * 3600 if text_ttl_hours > 0 else None
-    media_cutoff = current_ts - media_ttl_hours * 3600 if media_ttl_hours > 0 else None
-    active_cutoffs = [c for c in (text_cutoff, media_cutoff) if c is not None]
-    empty_chat_cutoff = min(active_cutoffs) if active_cutoffs else None
     empty_chat_grace_seconds = 180
     changed = False
     kept_chats: list[dict[str, Any]] = []
     candidate_delete_files: set[Path] = set()
     kept_files: set[Path] = set()
+    users_by_id = {
+        str(user.get("id") or ""): user
+        for user in store.get("users", [])
+        if isinstance(user, dict)
+    }
 
     for chat in store.get("chats", []):
+        owner_user = users_by_id.get(str(chat.get("user_id") or ""))
+        text_ttl_hours, media_ttl_hours = _retention_settings_for_user(owner_user, app_meta)
+        text_cutoff = current_ts - text_ttl_hours * 3600 if text_ttl_hours > 0 else None
+        media_cutoff = current_ts - media_ttl_hours * 3600 if media_ttl_hours > 0 else None
+        active_cutoffs = [c for c in (text_cutoff, media_cutoff) if c is not None]
+        empty_chat_cutoff = min(active_cutoffs) if active_cutoffs else None
         messages = chat.get("messages", [])
         kept_messages: list[dict[str, Any]] = []
         for msg in messages:
@@ -1759,6 +1789,31 @@ def _apply_message_retention(store: dict[str, Any]) -> bool:
         changed = True
 
     return changed
+
+
+def _clear_chats_in_store(store: dict[str, Any], user_id: str | None = None) -> int:
+    removed_files: set[Path] = set()
+    kept_chats: list[dict[str, Any]] = []
+    removed_count = 0
+
+    for chat in store.get("chats", []):
+        if not isinstance(chat, dict):
+            continue
+        chat_user_id = str(chat.get("user_id") or "")
+        should_remove = user_id is None or chat_user_id == str(user_id or "")
+        if should_remove:
+            removed_count += 1
+            removed_files.update(_iter_chat_local_attachment_paths(chat))
+            continue
+        kept_chats.append(chat)
+
+    if removed_count <= 0:
+        return 0
+
+    store["chats"] = kept_chats
+    kept_files = _collect_store_local_attachment_paths(store)
+    _delete_local_attachment_files(removed_files, kept_paths=kept_files)
+    return removed_count
 
 
 def load_store() -> dict[str, Any]:
@@ -1891,6 +1946,8 @@ def sanitize_user_for_client(user: dict[str, Any]) -> dict[str, Any]:
         "enabled": bool(user.get("enabled", True)),
         "default_model_id": user.get("default_model_id"),
         "default_mask_id": user.get("default_mask_id"),
+        "message_text_ttl_hours": _normalize_retention_hours(user.get("message_text_ttl_hours"), 0),
+        "message_media_ttl_hours": _normalize_retention_hours(user.get("message_media_ttl_hours"), 0),
         "created_at": user.get("created_at"),
         "updated_at": user.get("updated_at"),
     }
@@ -2627,12 +2684,14 @@ class AdminUserPasswordInput(BaseModel):
     password: str = Field(min_length=1)
 
 
+class UserRetentionSettingsInput(BaseModel):
+    message_text_ttl_hours: int | None = Field(default=None, ge=0, le=MAX_RETENTION_HOURS)
+    message_media_ttl_hours: int | None = Field(default=None, ge=0, le=MAX_RETENTION_HOURS)
+
+
 class AdminAppSettingsInput(BaseModel):
     app_title: str | None = None
     app_subtitle: str | None = None
-    message_ttl_hours: int | None = Field(default=None, ge=0, le=24 * 365 * 5)
-    message_text_ttl_hours: int | None = Field(default=None, ge=0, le=24 * 365 * 5)
-    message_media_ttl_hours: int | None = Field(default=None, ge=0, le=24 * 365 * 5)
 
 
 app = FastAPI(title="My Chat")
@@ -2809,6 +2868,8 @@ def setup_init(payload: SetupInitInput, response: Response):
         "enabled": True,
         "default_model_id": None,
         "default_mask_id": None,
+        "message_text_ttl_hours": 0,
+        "message_media_ttl_hours": 0,
         "created_at": ts,
         "updated_at": ts,
     }
@@ -3179,6 +3240,29 @@ def set_default_agent(payload: DefaultAgentInput, current_user: dict[str, Any] =
     return {"ok": True, "default_agent_id": user.get("default_mask_id")}
 
 
+@app.post("/api/user/retention-settings")
+def set_user_retention_settings(
+    payload: UserRetentionSettingsInput,
+    current_user: dict[str, Any] = Depends(require_auth),
+):
+    store = load_store()
+    user = find_user_by_id(store, current_user.get("id"))
+    if not user:
+        raise HTTPException(status_code=401, detail="鏈櫥褰曟垨浼氳瘽鏃犳晥")
+
+    text_ttl_hours = _normalize_retention_hours(payload.message_text_ttl_hours, 0)
+    media_ttl_hours = _normalize_retention_hours(payload.message_media_ttl_hours, 0)
+    user["message_text_ttl_hours"] = text_ttl_hours
+    user["message_media_ttl_hours"] = media_ttl_hours
+    user["updated_at"] = now_ts()
+    save_store(store)
+    return {
+        "ok": True,
+        "message_text_ttl_hours": user.get("message_text_ttl_hours", 0),
+        "message_media_ttl_hours": user.get("message_media_ttl_hours", 0),
+    }
+
+
 @app.get("/api/default-model")
 def get_default_model(current_user: dict[str, Any] = Depends(require_auth)):
     store = load_store()
@@ -3219,6 +3303,19 @@ def get_chats(current_user: dict[str, Any] = Depends(require_auth)):
     chats = [c for c in store.get("chats", []) if c.get("user_id") == user_id]
     chats.sort(key=lambda c: _safe_int(c.get("updated_at"), 0), reverse=True)
     return {"chats": chats}
+
+
+@app.post("/api/chats/clear")
+def clear_my_chats(current_user: dict[str, Any] = Depends(require_auth)):
+    store = load_store()
+    user = find_user_by_id(store, current_user.get("id"))
+    if not user:
+        raise HTTPException(status_code=401, detail="鏈櫥褰曟垨浼氳瘽鏃犳晥")
+
+    removed_chats = _clear_chats_in_store(store, user.get("id"))
+    if removed_chats > 0:
+        save_store(store)
+    return {"ok": True, "removed_chats": removed_chats}
 
 
 @app.post("/api/chats")
@@ -3816,6 +3913,8 @@ def admin_create_user(payload: AdminUserCreateInput, _admin: dict[str, Any] = De
         "enabled": True,
         "default_model_id": default_model_id,
         "default_mask_id": default_mask_id,
+        "message_text_ttl_hours": 0,
+        "message_media_ttl_hours": 0,
         "created_at": ts,
         "updated_at": ts,
     }
@@ -3894,51 +3993,9 @@ def admin_update_app_settings(
         app_meta["subtitle"] = subtitle
     else:
         app_meta["subtitle"] = DEFAULT_APP_SUBTITLE
-
-    max_ttl_hours = 24 * 365 * 5
-    legacy_input_ttl = payload.message_ttl_hours
-    current_legacy_ttl = _safe_int(app_meta.get("message_ttl_hours"), 0)
-    current_text_ttl = _safe_int(app_meta.get("message_text_ttl_hours"), current_legacy_ttl)
-    current_media_ttl = _safe_int(app_meta.get("message_media_ttl_hours"), current_legacy_ttl)
-
-    if payload.message_text_ttl_hours is None and payload.message_media_ttl_hours is None:
-        base_ttl = legacy_input_ttl if legacy_input_ttl is not None else current_text_ttl
-        text_ttl_hours = _safe_int(base_ttl, 0)
-        media_ttl_hours = _safe_int(base_ttl, 0)
-    else:
-        text_source = (
-            payload.message_text_ttl_hours
-            if payload.message_text_ttl_hours is not None
-            else legacy_input_ttl
-            if legacy_input_ttl is not None
-            else current_text_ttl
-        )
-        media_source = (
-            payload.message_media_ttl_hours
-            if payload.message_media_ttl_hours is not None
-            else legacy_input_ttl
-            if legacy_input_ttl is not None
-            else current_media_ttl
-        )
-        text_ttl_hours = _safe_int(text_source, 0)
-        media_ttl_hours = _safe_int(media_source, 0)
-
-    text_ttl_hours = max(0, min(text_ttl_hours, max_ttl_hours))
-    media_ttl_hours = max(0, min(media_ttl_hours, max_ttl_hours))
-
-    compatibility_ttl = (
-        text_ttl_hours
-        if text_ttl_hours == media_ttl_hours
-        else min((ttl for ttl in (text_ttl_hours, media_ttl_hours) if ttl > 0), default=0)
-    )
-
-    app_meta["message_text_ttl_hours"] = text_ttl_hours
-    app_meta["message_media_ttl_hours"] = media_ttl_hours
-    app_meta["message_ttl_hours"] = compatibility_ttl
     app_meta["updated_at"] = now_ts()
     store["app"] = app_meta
 
-    _apply_message_retention(store)
     save_store(store)
 
     return {
@@ -3946,9 +4003,6 @@ def admin_update_app_settings(
         "app": {
             "title": app_meta.get("title"),
             "subtitle": app_meta.get("subtitle"),
-            "message_ttl_hours": app_meta.get("message_ttl_hours", 0),
-            "message_text_ttl_hours": app_meta.get("message_text_ttl_hours", 0),
-            "message_media_ttl_hours": app_meta.get("message_media_ttl_hours", 0),
         },
     }
 
@@ -3956,14 +4010,8 @@ def admin_update_app_settings(
 @app.post("/api/admin/chats/clear")
 def admin_clear_all_chats(_admin: dict[str, Any] = Depends(require_admin)):
     store = load_store()
-    removed_chats = len(store.get("chats", []))
+    removed_chats = _clear_chats_in_store(store, None)
     if removed_chats > 0:
-        removed_files: set[Path] = set()
-        for chat in store.get("chats", []):
-            if isinstance(chat, dict):
-                removed_files.update(_iter_chat_local_attachment_paths(chat))
-        store["chats"] = []
-        _delete_local_attachment_files(removed_files, kept_paths=set())
         save_store(store)
     return {"ok": True, "removed_chats": removed_chats}
 
