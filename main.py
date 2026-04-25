@@ -1100,14 +1100,8 @@ def _dedupe_stream_piece(piece: str, emitted_text: str) -> str:
         return ""
     if not emitted_text:
         return raw
-    if emitted_text.endswith(raw):
-        return ""
     if raw.startswith(emitted_text):
         return raw[len(emitted_text) :]
-    max_overlap = min(len(raw), len(emitted_text))
-    for overlap in range(max_overlap, 0, -1):
-        if emitted_text.endswith(raw[:overlap]):
-            return raw[overlap:]
     return raw
 
 
@@ -2317,28 +2311,8 @@ def _extract_stream_delta_text(payload: dict[str, Any], protocol: str) -> str:
                 delta = payload.get("delta")
                 if isinstance(delta, str):
                     return delta
-            if event_type.endswith(".done"):
-                text = payload.get("text")
-                if isinstance(text, str):
-                    return text
+            return ""
 
-        output = payload.get("output")
-        if isinstance(output, list):
-            fragments: list[str] = []
-            for item in output:
-                if not isinstance(item, dict):
-                    continue
-                content = item.get("content")
-                if not isinstance(content, list):
-                    continue
-                for part in content:
-                    if not isinstance(part, dict):
-                        continue
-                    text = part.get("text")
-                    if isinstance(text, str):
-                        fragments.append(text)
-            if fragments:
-                return "".join(fragments)
         return ""
 
     choices = payload.get("choices")
@@ -2361,6 +2335,24 @@ def _extract_stream_delta_text(payload: dict[str, Any], protocol: str) -> str:
             if fragments:
                 return "".join(fragments)
     return ""
+
+
+def _extract_stream_final_text(payload: dict[str, Any], protocol: str) -> str:
+    if protocol != "responses":
+        return ""
+
+    event_type = payload.get("type")
+    if isinstance(event_type, str):
+        if event_type.endswith(".output_text.done"):
+            text = payload.get("text")
+            if isinstance(text, str):
+                return text
+        response = payload.get("response")
+        if isinstance(response, dict):
+            return _extract_assistant_text(response, protocol)
+        return ""
+
+    return _extract_assistant_text(payload, protocol)
 
 
 def _build_upstream_body(
@@ -3688,6 +3680,7 @@ async def send_message_stream(
         chunks: list[str] = []
         generated_attachments: list[dict[str, Any]] = []
         latest_payload_obj: dict[str, Any] | None = None
+        latest_final_text = ""
         stream_audit_logged = False
 
         def _log_stream_audit(status_code: int, extra: dict[str, Any] | None = None) -> None:
@@ -3704,8 +3697,11 @@ async def send_message_stream(
             )
 
         async def _handle_stream_payload(payload_obj: dict[str, Any]):
-            nonlocal latest_payload_obj
+            nonlocal latest_payload_obj, latest_final_text
             latest_payload_obj = payload_obj
+            final_text = _extract_stream_final_text(payload_obj, protocol)
+            if final_text:
+                latest_final_text = final_text
 
             raw_piece = _extract_stream_delta_text(payload_obj, protocol)
             emitted_text = "".join(chunks)
@@ -3807,6 +3803,8 @@ async def send_message_stream(
                                     yield out
 
             assistant_text = "".join(chunks).strip()
+            if latest_final_text.strip():
+                assistant_text = latest_final_text.strip()
             if latest_payload_obj is not None:
                 if not assistant_text:
                     fallback_text = _extract_assistant_text(latest_payload_obj, protocol)
