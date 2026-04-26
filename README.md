@@ -6,12 +6,12 @@
 
 
 
-python原生快速部署：
+##python原生快速部署：
 ```
 pip install -r requirements.txt
 uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
-容器快速部署：
+##容器快速部署：
 ```
 docker run -d \
   --name simplechat \
