@@ -509,11 +509,25 @@
         gap: 8px;
       }
 
-      .chat-body {
-        flex: 1;
-        overflow: auto;
-        padding: 18px 16px 24px;
-      }
+	  .chat-body {
+	    flex: 1;
+	    overflow: auto;
+	    padding: 24px 48px 24px 48px;
+	  }
+	  
+	  @media (max-width: 1688px) {
+	    .chat-body {
+		  /* 宽度低于 688px 时的样式 */
+		  padding: 24px 24px 24px 24px;
+	    }
+	  }
+	  
+	  @media (max-width: 888px) {
+	    .chat-body {
+		  /* 宽度低于 888px 时的样式 */
+		  padding: 18px 2px 18px 8px;
+	    }
+	  }
 
       .empty-state {
         height: 100%;
@@ -528,6 +542,7 @@
       .empty-state button {
         margin-top: 14px;
       }
+	  
 
       .message-row {
         display: flex;
@@ -535,19 +550,38 @@
         margin-top: 14px;
         animation: fadeUp 0.18s ease;
       }
+	  
+	  @media (max-width: 888px) {
+	    .message-row {
+          display: grid;
+          grid-template-columns: auto minmax(0, 1fr);
+          grid-template-areas:
+            "avatar meta"
+            "bubble bubble";
+          column-gap: 8px;
+          row-gap: 6px;
+          align-items: center;
+		}
 
+        .message-row.user {
+          grid-template-columns: minmax(0, 1fr) auto;
+          grid-template-areas:
+            "meta avatar"
+            "bubble bubble";
+        }
+	  }
       .message-row.user {
         flex-direction: row-reverse;
       }
 
       .message-avatar {
-        width: 28px;
-        height: 28px;
+        width: clamp(28px, calc(var(--chat-font-size) * 1.15), 42px);
+        height: clamp(28px, calc(var(--chat-font-size) * 1.15), 42px);
         border-radius: 50%;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 12px;
+        font-size: clamp(12px, calc(var(--chat-font-size) * 0.42), 18px);
         font-weight: 700;
         border: var(--border);
         color: #355265;
@@ -562,9 +596,19 @@
 
       .message-content {
         max-width: min(760px, calc(100% - 56px));
+        min-width: 0;
         display: flex;
         flex-direction: column;
       }
+
+	  @media (max-width: 888px) {
+        .message-content {
+          max-width: min(760px, calc(100% - 5px));
+          min-width: 0;
+          display: flex;
+          flex-direction: column;
+        }
+	  }
 
       .message-row.user .message-content {
         align-items: flex-end;
@@ -577,22 +621,72 @@
         margin-bottom: 4px;
       }
 
+      @media (max-width: 888px) {
+        .message-avatar {
+          grid-area: avatar;
+          margin: 0;
+          justify-self: start;
+          transform: none;
+        }
+
+        .message-row.user .message-avatar {
+          margin: 0;
+          justify-self: end;
+          transform: none;
+        }
+
+        .message-content {
+          display: contents;
+        }
+
+        .message-meta {
+          grid-area: meta;
+          margin: 0;
+          align-self: center;
+          justify-self: start;
+          transform: none;
+          max-width: 100%;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .message-row.user .message-meta {
+          margin: 0;
+          justify-self: end;
+          text-align: right;
+          transform: none;
+        }
+
+        .message-bubble {
+          grid-area: bubble;
+        }
+
+        .message-row.user .message-bubble {
+          justify-self: end;
+          max-width: 100%;
+        }
+      }
+
       .message-bubble {
         border: var(--border);
         border-radius: 14px;
-        padding: 10px 12px;
-        line-height: 1.55;
+        max-width: 100%;
+        padding: max(10px, calc(var(--chat-font-size) * 0.32))
+          max(12px, calc(var(--chat-font-size) * 0.38));
+        line-height: 1.45;
         font-family: var(--chat-font-family);
         font-size: var(--chat-font-size);
         white-space: normal;
+        overflow-wrap: anywhere;
         word-break: break-word;
         background: #f8fbfd;
       }
 
       .message-bubble-with-actions {
         position: relative;
-        padding-right: 68px;
-        padding-bottom: 38px;
+        padding-right: max(12px, calc(var(--chat-font-size) * 0.38));
+        padding-bottom: max(38px, calc(var(--chat-font-size) * 1.3));
       }
 
       .message-bubble-main {
@@ -746,10 +840,12 @@
       .markdown-content {
         font-size: var(--chat-font-size);
         font-family: var(--chat-font-family);
+        max-width: 100%;
+        overflow-wrap: anywhere;
       }
 
       .markdown-content p {
-        margin: 0 0 10px;
+        margin: 0 0 0.7em;
       }
 
       .markdown-content p:last-child {
@@ -868,12 +964,13 @@
 
       .markdown-content ul,
       .markdown-content ol {
-        margin: 8px 0;
-        padding-left: 22px;
+        margin: 0.55em 0;
+        padding-left: max(22px, 1.75em);
       }
 
       .markdown-content li {
-        margin: 4px 0;
+        margin: 0.25em 0;
+        line-height: 1.45;
       }
 
       .markdown-content blockquote {
@@ -913,24 +1010,38 @@
       }
 
       .chat-config-row {
-        display: flex;
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
         gap: 8px;
         margin-bottom: 8px;
       }
 
       .chat-config-row select {
-        flex: 1;
+        width: 100%;
+        min-width: 0;
         border: var(--border);
         border-radius: 10px;
-        height: 38px;
-        padding: 0 10px;
+        min-height: max(38px, calc(var(--ui-font-size) * 1.9));
+        padding: 0 max(10px, calc(var(--ui-font-size) * 0.42));
+        font-size: var(--ui-font-size);
+        line-height: 1.25;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
         background: var(--white);
+      }
+
+      @media (max-width: 399px) {
+        .chat-config-row {
+          grid-template-columns: 1fr;
+        }
       }
 
       .chat-input-wrap {
         border: var(--border);
         border-radius: 12px;
         position: relative;
+        min-width: 0;
         background: #ffffff;
       }
 
@@ -938,9 +1049,12 @@
         width: 100%;
         border: none;
         resize: vertical;
-        min-height: 86px;
+        min-height: max(86px, calc(var(--chat-font-size) * 3.6));
         max-height: 280px;
-        padding: 12px 138px 12px 12px;
+        padding: max(12px, calc(var(--chat-font-size) * 0.38))
+          max(138px, calc(var(--ui-font-size) * 5.6))
+          max(12px, calc(var(--chat-font-size) * 0.38))
+          max(12px, calc(var(--chat-font-size) * 0.38));
         border-radius: 12px;
         outline: none;
         font-family: var(--chat-font-family);
@@ -957,22 +1071,28 @@
         position: absolute;
         right: 10px;
         bottom: 10px;
-        width: 82px;
+        min-width: max(82px, calc(var(--ui-font-size) * 3.1));
+        min-height: max(36px, calc(var(--ui-font-size) * 1.75));
+        padding: 0 max(12px, calc(var(--ui-font-size) * 0.55));
+        font-size: var(--ui-font-size);
+        line-height: 1.15;
+        white-space: nowrap;
       }
 
       .attach-btn {
         position: absolute;
-        right: 98px;
+        right: max(98px, calc(var(--ui-font-size) * 4));
         bottom: 10px;
-        min-width: 36px;
-        width: 36px;
-        height: 36px;
+        min-width: max(36px, calc(var(--ui-font-size) * 1.75));
+        width: max(36px, calc(var(--ui-font-size) * 1.75));
+        height: max(36px, calc(var(--ui-font-size) * 1.75));
         border-radius: 10px;
         padding: 0;
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        font-size: 16px;
+        font-size: max(16px, var(--ui-font-size));
+        line-height: 1;
       }
 
       .compose-attachments {
@@ -1147,7 +1267,7 @@
         overflow: auto;
         display: flex;
         flex-direction: column;
-        gap: 8px;
+        gap: max(8px, calc(var(--ui-font-size) * 0.35));
       }
 
       .jump-item {
@@ -1157,7 +1277,14 @@
         background: #f7fbff;
         color: #2f4a5c;
         border-radius: 10px;
-        padding: 8px 10px;
+        padding: max(8px, calc(var(--ui-font-size) * 0.38))
+          max(10px, calc(var(--ui-font-size) * 0.5));
+        display: grid;
+        grid-template-rows: auto auto;
+        align-content: start;
+        gap: max(4px, calc(var(--ui-font-size) * 0.18));
+        min-height: calc(var(--ui-font-size) * 2.9);
+        overflow: hidden;
         cursor: pointer;
       }
 
@@ -1166,18 +1293,24 @@
       }
 
       .jump-item-index {
-        font-size: 12px;
+        min-width: 0;
+        font-size: max(12px, calc(var(--ui-font-size) - 8px));
+        line-height: 1.25;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
         color: #6f8495;
       }
 
       .jump-item-text {
-        margin-top: 4px;
+        min-width: 0;
+        margin-top: 0;
         font-size: var(--ui-font-size);
-        line-height: 1.45;
-        display: -webkit-box;
-        -webkit-line-clamp: 2;
-        -webkit-box-orient: vertical;
+        line-height: 1.28;
+        display: block;
+        white-space: nowrap;
         overflow: hidden;
+        text-overflow: ellipsis;
       }
 
       .confirm-mask {
@@ -1311,18 +1444,26 @@
 
       .settings-tabs {
         display: flex;
+        align-items: stretch;
         gap: 8px;
         padding: 10px 14px 0;
       }
 
       .tab-btn {
+        flex: 1 1 0;
+        min-width: 0;
         border: var(--border);
-        border-radius: 999px;
+        border-radius: 12px;
         background: #ffffff;
         color: #456072;
-        font-size: calc(var(--ui-font-size) - 1px);
-        padding: 6px 12px;
+        font-size: var(--ui-font-size);
+        line-height: 1.15;
+        min-height: max(38px, calc(var(--ui-font-size) * 1.8));
+        padding: 6px max(8px, calc(var(--ui-font-size) * 0.28));
         cursor: pointer;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
 
       .tab-btn.active {
@@ -1432,6 +1573,37 @@
         resize: vertical;
       }
 
+      .app-icon-editor {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 8px 0;
+      }
+
+      .app-icon-preview {
+        width: max(40px, calc(var(--ui-font-size) * 1.8));
+        height: max(40px, calc(var(--ui-font-size) * 1.8));
+        border: var(--border);
+        border-radius: 10px;
+        background: #fbfdff;
+        object-fit: contain;
+        padding: 4px;
+        flex: none;
+      }
+
+      .app-icon-actions {
+        min-width: 0;
+        flex: 1;
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .app-icon-actions button {
+        flex: 1 1 120px;
+        min-width: 0;
+      }
+
       .retention-grid {
         display: grid;
         gap: 10px;
@@ -1440,7 +1612,8 @@
 
       .retention-item label {
         display: block;
-        font-size: 12px;
+        font-size: calc(var(--ui-font-size) - 2px);
+        line-height: 1.35;
         color: #5f7587;
         margin: 0 0 6px;
       }
@@ -1469,11 +1642,12 @@
         align-items: center;
         justify-content: space-between;
         gap: 12px;
-        margin-bottom: 8px;
+        margin-bottom: max(8px, calc(var(--ui-font-size) * 0.28));
       }
 
       .setting-row label {
-        font-size: 13px;
+        font-size: calc(var(--ui-font-size) - 2px);
+        line-height: 1.35;
         color: #476172;
         white-space: nowrap;
       }
@@ -1500,8 +1674,9 @@
       }
 
       .setting-value {
-        min-width: 42px;
-        font-size: 12px;
+        min-width: max(42px, calc(var(--ui-font-size) * 2.1));
+        font-size: calc(var(--ui-font-size) - 2px);
+        line-height: 1.25;
         color: #5f7587;
         text-align: right;
       }
@@ -2218,6 +2393,14 @@
             <div class="form-title">应用信息</div>
             <input id="appDisplayTitle" placeholder="应用标题" />
             <input id="appDisplaySubtitle" placeholder="应用副标题" />
+            <input id="appIconPicker" type="file" accept=".ico,image/png,image/jpeg,image/webp,image/gif,image/svg+xml,image/x-icon,image/vnd.microsoft.icon" style="display: none;" />
+            <div class="app-icon-editor">
+              <img id="appIconPreview" class="app-icon-preview" alt="应用图标预览" />
+              <div class="app-icon-actions">
+                <button class="ghost-btn" type="button" onclick="openAppIconPicker()">上传图标</button>
+                <button class="ghost-btn" type="button" onclick="clearAppIcon()">清除图标</button>
+              </div>
+            </div>
             <button style="width: 100%; margin-top: 8px;" onclick="saveAppSettings()">保存应用信息</button>
           </div>
           <div class="form-card" style="margin-bottom: 10px;">
@@ -2309,6 +2492,8 @@
       let chatSearchResultCursor = -1;
       let chatSearchActiveMessageKey = "";
       let chatSearchActiveResultKey = "";
+      let pendingAppIconDataUrl = "";
+      let appIconTouched = false;
       const CHAT_SEARCH_DEBOUNCE_MS = 180;
       const REASONING_EFFORT_OPTIONS = [
         { value: "", label: "推理等级" },
@@ -2857,11 +3042,24 @@
         return state?.current_user?.role === "admin";
       }
 
+      function setAppIconLink(iconUrl) {
+        let iconLink = document.getElementById("appIconLink");
+        if (!iconLink) {
+          iconLink = document.createElement("link");
+          iconLink.id = "appIconLink";
+          iconLink.rel = "icon";
+          document.head.appendChild(iconLink);
+        }
+        iconLink.href = iconUrl || "data:,";
+      }
+
       function applyAppMeta(appMeta) {
         const title = String(appMeta?.title || "Chat").trim() || "Chat";
         const subtitle =
           String(appMeta?.subtitle || "Build your own AI assistant").trim() || "Build your own AI assistant";
+        const iconUrl = String(appMeta?.icon_url || appMeta?.icon_data_url || "").trim();
         document.title = title;
+        setAppIconLink(iconUrl);
         const authTitle = document.getElementById("authAppTitle");
         const authSubtitle = document.getElementById("authAppSubtitle");
         const sidebarTitle = document.getElementById("sidebarAppTitle");
@@ -2870,6 +3068,55 @@
         if (authSubtitle) authSubtitle.textContent = subtitle;
         if (sidebarTitle) sidebarTitle.textContent = title;
         if (sidebarSubtitle) sidebarSubtitle.textContent = subtitle;
+      }
+
+      function normalizeAppIconDataUrl(dataUrl, file = null) {
+        let raw = String(dataUrl || "").trim();
+        if (!raw) return "";
+        const name = String(file?.name || "").toLowerCase();
+        if (name.endsWith(".ico") && raw.startsWith("data:application/octet-stream;base64,")) {
+          raw = raw.replace("data:application/octet-stream;base64,", "data:image/x-icon;base64,");
+        }
+        const lower = raw.toLowerCase();
+        const allowed = [
+          "data:image/png;base64,",
+          "data:image/jpeg;base64,",
+          "data:image/jpg;base64,",
+          "data:image/webp;base64,",
+          "data:image/gif;base64,",
+          "data:image/svg+xml;base64,",
+          "data:image/x-icon;base64,",
+          "data:image/vnd.microsoft.icon;base64,",
+        ];
+        return allowed.some((prefix) => lower.startsWith(prefix)) ? raw : "";
+      }
+
+      function renderAppIconPreview() {
+        const preview = document.getElementById("appIconPreview");
+        if (!preview) return;
+        const iconUrl = pendingAppIconDataUrl || state?.app?.icon_url || state?.app?.icon_data_url || "";
+        if (iconUrl) {
+          preview.src = iconUrl;
+          preview.style.visibility = "visible";
+        } else {
+          preview.removeAttribute("src");
+          preview.style.visibility = "hidden";
+        }
+      }
+
+      function openAppIconPicker() {
+        document.getElementById("appIconPicker")?.click();
+      }
+
+      function clearAppIcon() {
+        pendingAppIconDataUrl = "";
+        appIconTouched = true;
+        if (state?.app) {
+          state.app.icon_data_url = "";
+          state.app.icon_url = "";
+        }
+        setAppIconLink("");
+        renderAppIconPreview();
       }
 
       function showAuthPanels(mode) {
@@ -4638,6 +4885,9 @@ function renderAgents() {
         }
         document.getElementById("appDisplayTitle").value = state?.app?.title || "";
         document.getElementById("appDisplaySubtitle").value = state?.app?.subtitle || "";
+        pendingAppIconDataUrl = "";
+        appIconTouched = false;
+        renderAppIconPreview();
         renderUsers();
       }
 
@@ -4687,12 +4937,16 @@ function renderAgents() {
         if (!isAdmin()) return;
         const app_title = document.getElementById("appDisplayTitle").value.trim();
         const app_subtitle = document.getElementById("appDisplaySubtitle").value.trim();
+        const body = {
+          app_title: app_title || null,
+          app_subtitle: app_subtitle || null,
+        };
+        if (appIconTouched) {
+          body.app_icon_data_url = pendingAppIconDataUrl || "";
+        }
         await api("/api/admin/app-settings", {
           method: "POST",
-          body: JSON.stringify({
-            app_title: app_title || null,
-            app_subtitle: app_subtitle || null,
-          }),
+          body: JSON.stringify(body),
         });
         await loadState();
       }
@@ -5069,6 +5323,30 @@ function renderAgents() {
       document.getElementById("filePicker").addEventListener("change", async (e) => {
         await addFilesToPending(e.target.files || []);
         e.target.value = "";
+      });
+
+      document.getElementById("appIconPicker").addEventListener("change", async (e) => {
+        const file = Array.from(e.target.files || [])[0];
+        e.target.value = "";
+        if (!file) return;
+        const errorEl = document.getElementById("sendError");
+        if (file.size > 512 * 1024) {
+          if (errorEl) errorEl.textContent = "应用图标不能超过 512KB";
+          return;
+        }
+        try {
+          const dataUrl = normalizeAppIconDataUrl(await fileToDataURL(file), file);
+          if (!dataUrl) {
+            if (errorEl) errorEl.textContent = "请选择 PNG/JPG/WebP/GIF/SVG/ICO 图标";
+            return;
+          }
+          pendingAppIconDataUrl = dataUrl;
+          appIconTouched = true;
+          setAppIconLink(dataUrl);
+          renderAppIconPreview();
+        } catch (e) {
+          if (errorEl) errorEl.textContent = e.message || "图标读取失败";
+        }
       });
 
       document.getElementById("chatSearchInput").addEventListener("input", (e) => {
