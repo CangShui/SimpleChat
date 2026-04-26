@@ -6,6 +6,20 @@
 
 
 
+python原生快速部署：
+```
+pip install -r requirements.txt
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+```
+容器快速部署：
+```
+docker run -d \
+  --name simplechat \
+  -p 8000:8000 \
+  -v /app/simplechat/data:/data \
+  ghcr.io/cangshui/simplechat:latest
+```
+
 ## 1. 项目定位
 
 SimpleChat 是一个基于 FastAPI 的轻量级多用户聊天系统，采用本地 JSON 文件存储，不依赖数据库。它适合内网部署、个人私有部署、小团队共享使用，也适合做 OpenAI 兼容接口的简洁 Web 前端。
