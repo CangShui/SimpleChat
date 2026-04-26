@@ -4,6 +4,7 @@ import asyncio
 import base64
 import hashlib
 import hmac
+import html
 import json
 import logging
 import os
@@ -21,6 +22,7 @@ from urllib.parse import urlsplit, urlunsplit
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse
+from fastapi.responses import HTMLResponse
 from fastapi.responses import JSONResponse
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -28,6 +30,7 @@ from pydantic import BaseModel, Field
 
 
 APP_DIR = Path(__file__).resolve().parent
+STATIC_DIR = (APP_DIR / "static").resolve()
 _DATA_PATH_RAW = os.getenv("APP_DATA_PATH", "./data/chat.json").strip() or "./data/chat.json"
 if Path(_DATA_PATH_RAW).is_absolute():
     DATA_PATH = Path(_DATA_PATH_RAW).resolve()
@@ -635,12 +638,126 @@ MAX_ATTACHMENT_NAME_LEN = 255
 MAX_ATTACHMENT_MIME_LEN = 128
 MAX_ATTACHMENT_TEXT_CHARS = 20000
 MAX_ATTACHMENT_DATA_URL_CHARS = 2_500_000
+MAX_APP_ICON_DATA_URL_CHARS = 750_000
+MAX_APP_ICON_BYTES = 512 * 1024
 
 
 def _truncate_text(text: str, max_len: int) -> str:
     if len(text) <= max_len:
         return text
     return text[:max_len]
+
+
+def _decode_app_icon_data_url(value: Any) -> tuple[bytes, str] | None:
+    raw = "" if value is None else str(value).strip()
+    if not raw:
+        return None
+    if len(raw) > MAX_APP_ICON_DATA_URL_CHARS:
+        return None
+    lower = raw.lower()
+    mime_to_ext = {
+        "data:image/png;base64,": "png",
+        "data:image/jpeg;base64,": "jpg",
+        "data:image/jpg;base64,": "jpg",
+        "data:image/webp;base64,": "webp",
+        "data:image/gif;base64,": "gif",
+        "data:image/svg+xml;base64,": "svg",
+        "data:image/x-icon;base64,": "ico",
+        "data:image/vnd.microsoft.icon;base64,": "ico",
+    }
+    ext = ""
+    for prefix, candidate_ext in mime_to_ext.items():
+        if lower.startswith(prefix):
+            ext = candidate_ext
+            break
+    if not ext:
+        return None
+    try:
+        encoded = raw.split(",", 1)[1]
+        binary = base64.b64decode(_clean_base64_text(encoded) + "===", validate=False)
+    except Exception:
+        return None
+    if not binary or len(binary) > MAX_APP_ICON_BYTES:
+        return None
+    return binary, ext
+
+
+def _normalize_app_icon_filename(value: Any) -> str:
+    raw = Path(str(value or "").strip()).name
+    if not raw:
+        return ""
+    if not re.fullmatch(r"app-icon\.(png|jpg|webp|gif|svg|ico)", raw, flags=re.I):
+        return ""
+    path = (STATIC_DIR / raw).resolve()
+    try:
+        path.relative_to(STATIC_DIR)
+    except ValueError:
+        return ""
+    return raw if path.exists() else ""
+
+
+def _remove_app_icon_files(keep_filename: str = "") -> None:
+    STATIC_DIR.mkdir(parents=True, exist_ok=True)
+    keep = Path(str(keep_filename or "")).name
+    for path in STATIC_DIR.glob("app-icon.*"):
+        if path.name == keep:
+            continue
+        if not path.is_file():
+            continue
+        try:
+            path.unlink()
+        except Exception:
+            pass
+
+
+def _store_app_icon_data_url(value: Any) -> str:
+    decoded = _decode_app_icon_data_url(value)
+    if decoded is None:
+        return ""
+    binary, ext = decoded
+    STATIC_DIR.mkdir(parents=True, exist_ok=True)
+    filename = f"app-icon.{ext}"
+    path = (STATIC_DIR / filename).resolve()
+    try:
+        path.relative_to(STATIC_DIR)
+    except ValueError:
+        return ""
+    try:
+        path.write_bytes(binary)
+    except Exception:
+        return ""
+    _remove_app_icon_files(filename)
+    return filename
+
+
+def _app_icon_url_for_meta(app_meta: dict[str, Any] | None) -> str:
+    meta = app_meta or {}
+    filename = _normalize_app_icon_filename(meta.get("icon_filename"))
+    if not filename:
+        return ""
+    version = _safe_int(meta.get("updated_at"), 0)
+    if version <= 0:
+        try:
+            version = int((STATIC_DIR / filename).stat().st_mtime)
+        except Exception:
+            version = int(time.time())
+    return f"/static/{filename}?v={version}"
+
+
+def _serialize_app_meta_for_client(app_meta: dict[str, Any] | None) -> dict[str, Any]:
+    meta = app_meta or {}
+    legacy_ttl_hours = _safe_int(meta.get("message_ttl_hours"), 0)
+    text_ttl_hours = _safe_int(meta.get("message_text_ttl_hours"), legacy_ttl_hours)
+    media_ttl_hours = _safe_int(meta.get("message_media_ttl_hours"), legacy_ttl_hours)
+    return {
+        "title": meta.get("title") or DEFAULT_APP_TITLE,
+        "subtitle": meta.get("subtitle") or DEFAULT_APP_SUBTITLE,
+        "icon_url": _app_icon_url_for_meta(meta),
+        "icon_data_url": "",
+        "message_ttl_hours": legacy_ttl_hours,
+        "message_text_ttl_hours": text_ttl_hours,
+        "message_media_ttl_hours": media_ttl_hours,
+    }
 
 
 def _safe_local_attachment_path_from_url(data_url: str) -> Path | None:
@@ -1214,6 +1331,7 @@ def default_store() -> dict[str, Any]:
         "app": {
             "title": DEFAULT_APP_TITLE,
             "subtitle": DEFAULT_APP_SUBTITLE,
+            "icon_filename": "",
             "message_text_ttl_hours": 0,
             "message_media_ttl_hours": 0,
             "message_ttl_hours": 0,
@@ -1368,6 +1486,17 @@ def _normalize_v2_store(data: dict[str, Any]) -> tuple[dict[str, Any], bool]:
     if not isinstance(app_meta.get("subtitle"), str) or not app_meta.get("subtitle").strip():
         app_meta["subtitle"] = DEFAULT_APP_SUBTITLE
         changed = True
+    legacy_icon_data_url = str(app_meta.get("icon_data_url") or "").strip()
+    if legacy_icon_data_url:
+        icon_filename = _store_app_icon_data_url(legacy_icon_data_url)
+        app_meta["icon_filename"] = icon_filename
+        app_meta.pop("icon_data_url", None)
+        changed = True
+    else:
+        icon_filename = _normalize_app_icon_filename(app_meta.get("icon_filename"))
+        if app_meta.get("icon_filename") != icon_filename:
+            app_meta["icon_filename"] = icon_filename
+            changed = True
     legacy_ttl = _normalize_retention_hours(app_meta.get("message_ttl_hours"), 0)
     text_ttl = _normalize_retention_hours(app_meta.get("message_text_ttl_hours"), legacy_ttl)
     media_ttl = _normalize_retention_hours(app_meta.get("message_media_ttl_hours"), legacy_ttl)
@@ -2589,6 +2718,7 @@ def _claim_orphan_data_for_admin(store: dict[str, Any], admin_user_id: str) -> b
 class SetupInitInput(BaseModel):
     app_title: str | None = None
     app_subtitle: str | None = None
+    app_icon_data_url: str | None = None
     admin_password: str = Field(min_length=1)
     default_model_name: str | None = None
     default_base_url: str | None = None
@@ -2684,10 +2814,11 @@ class UserRetentionSettingsInput(BaseModel):
 class AdminAppSettingsInput(BaseModel):
     app_title: str | None = None
     app_subtitle: str | None = None
+    app_icon_data_url: str | None = None
 
 
 app = FastAPI(title="My Chat")
-app.mount("/static", StaticFiles(directory=str(APP_DIR / "static")), name="static")
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 app.mount("/data/file", StaticFiles(directory=str(ATTACHMENT_FILE_DIR)), name="attachment_files")
 
 
@@ -2818,8 +2949,19 @@ async def enforce_api_auth(request: Request, call_next):
 
 
 @app.get("/")
-def index() -> FileResponse:
-    return FileResponse(str(APP_DIR / "static" / "index.html"))
+def index() -> HTMLResponse:
+    store = load_store()
+    app_meta = _serialize_app_meta_for_client(store.get("app") or {})
+    html_text = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    title = html.escape(str(app_meta.get("title") or DEFAULT_APP_TITLE), quote=False)
+    icon_url = str(app_meta.get("icon_url") or "")
+    icon_link = (
+        f'<link id="appIconLink" rel="icon" href="{html.escape(icon_url, quote=True)}" />'
+        if icon_url
+        else '<link id="appIconLink" rel="icon" href="data:," />'
+    )
+    html_text = re.sub(r"<title>.*?</title>", f"<title>{title}</title>\n    {icon_link}", html_text, count=1, flags=re.I | re.S)
+    return HTMLResponse(content=html_text)
 
 
 @app.get("/api/auth/status")
@@ -2838,10 +2980,7 @@ def auth_status(request: Request):
         "need_setup": not initialized,
         "authorized": bool(user),
         "user": sanitize_user_for_client(user) if user else None,
-        "app": {
-            "title": app_meta.get("title") or DEFAULT_APP_TITLE,
-            "subtitle": app_meta.get("subtitle") or DEFAULT_APP_SUBTITLE,
-        },
+        "app": _serialize_app_meta_for_client(app_meta),
     }
 
 
@@ -2898,6 +3037,10 @@ def setup_init(payload: SetupInitInput, response: Response):
         app_meta["title"] = title
     if subtitle:
         app_meta["subtitle"] = subtitle
+    icon_filename = _store_app_icon_data_url(payload.app_icon_data_url)
+    if icon_filename:
+        app_meta["icon_filename"] = icon_filename
+        app_meta.pop("icon_data_url", None)
     app_meta["updated_at"] = now_ts()
     store["app"] = app_meta
 
@@ -2917,10 +3060,7 @@ def setup_init(payload: SetupInitInput, response: Response):
     return {
         "ok": True,
         "user": sanitize_user_for_client(admin_user),
-        "app": {
-            "title": app_meta.get("title") or DEFAULT_APP_TITLE,
-            "subtitle": app_meta.get("subtitle") or DEFAULT_APP_SUBTITLE,
-        },
+        "app": _serialize_app_meta_for_client(app_meta),
     }
 
 
@@ -2976,9 +3116,6 @@ def get_state(current_user: dict[str, Any] = Depends(require_auth)):
 
     is_admin = user.get("role") == "admin"
     app_meta = store.get("app") or {}
-    legacy_ttl_hours = _safe_int(app_meta.get("message_ttl_hours"), 0)
-    text_ttl_hours = _safe_int(app_meta.get("message_text_ttl_hours"), legacy_ttl_hours)
-    media_ttl_hours = _safe_int(app_meta.get("message_media_ttl_hours"), legacy_ttl_hours)
 
     chats = [c for c in store.get("chats", []) if c.get("user_id") == user.get("id")]
     chats.sort(key=lambda c: _safe_int(c.get("updated_at"), 0), reverse=True)
@@ -2988,13 +3125,7 @@ def get_state(current_user: dict[str, Any] = Depends(require_auth)):
     visible_masks = [serialize_mask_for_user(m, user, store) for m in visible_masks_for_user(store, user)]
 
     return {
-        "app": {
-            "title": app_meta.get("title") or DEFAULT_APP_TITLE,
-            "subtitle": app_meta.get("subtitle") or DEFAULT_APP_SUBTITLE,
-            "message_ttl_hours": legacy_ttl_hours,
-            "message_text_ttl_hours": text_ttl_hours,
-            "message_media_ttl_hours": media_ttl_hours,
-        },
+        "app": _serialize_app_meta_for_client(app_meta),
         "current_user": sanitize_user_for_client(user),
         "permissions": {
             "is_admin": is_admin,
@@ -3991,6 +4122,17 @@ def admin_update_app_settings(
         app_meta["subtitle"] = subtitle
     else:
         app_meta["subtitle"] = DEFAULT_APP_SUBTITLE
+    if _payload_has_field(payload, "app_icon_data_url"):
+        raw_icon = str(payload.app_icon_data_url or "").strip()
+        if raw_icon:
+            icon_filename = _store_app_icon_data_url(raw_icon)
+            if not icon_filename:
+                raise HTTPException(status_code=400, detail="图标格式无效或超过 512KB")
+            app_meta["icon_filename"] = icon_filename
+        else:
+            app_meta["icon_filename"] = ""
+            _remove_app_icon_files()
+        app_meta.pop("icon_data_url", None)
     app_meta["updated_at"] = now_ts()
     store["app"] = app_meta
 
@@ -3998,10 +4140,7 @@ def admin_update_app_settings(
 
     return {
         "ok": True,
-        "app": {
-            "title": app_meta.get("title"),
-            "subtitle": app_meta.get("subtitle"),
-        },
+        "app": _serialize_app_meta_for_client(app_meta),
     }
 
 
