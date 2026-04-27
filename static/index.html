@@ -672,6 +672,7 @@
         border: var(--border);
         border-radius: 14px;
         max-width: 100%;
+        min-width: 38px;
         padding: max(10px, calc(var(--chat-font-size) * 0.32))
           max(12px, calc(var(--chat-font-size) * 0.38));
         line-height: 1.45;
@@ -685,6 +686,7 @@
 
       .message-bubble-with-actions {
         position: relative;
+        min-width: max(70px, calc(var(--chat-font-size) * 2.1));
         padding-right: max(12px, calc(var(--chat-font-size) * 0.38));
         padding-bottom: max(38px, calc(var(--chat-font-size) * 1.3));
       }
@@ -3781,6 +3783,64 @@
         }, 1200);
       }
 
+      function matchCodeTokenAt(source, index, rule) {
+        if (rule.requireWhitespaceBefore && index > 0 && !/\s/.test(source[index - 1])) {
+          return null;
+        }
+        const match = source.slice(index).match(rule.pattern);
+        return match?.[0] || null;
+      }
+
+      function highlightCodeTokens(text, rules) {
+        const source = String(text || "");
+        let html = "";
+        let index = 0;
+        while (index < source.length) {
+          let token = null;
+          let className = "";
+          for (const rule of rules) {
+            const value = matchCodeTokenAt(source, index, rule);
+            if (value) {
+              token = value;
+              className = rule.className;
+              break;
+            }
+          }
+          if (token) {
+            html += `<span class="${className}">${escapeHtml(token)}</span>`;
+            index += token.length;
+            continue;
+          }
+
+          let next = index + 1;
+          while (next < source.length) {
+            if (rules.some((rule) => matchCodeTokenAt(source, next, rule))) break;
+            next += 1;
+          }
+          html += escapeHtml(source.slice(index, next));
+          index = next;
+        }
+        return html;
+      }
+
+      const CMD_HIGHLIGHT_RULES = [
+        { pattern: /^"[^"\n]*"/, className: "cmd-string" },
+        { pattern: /^(?:%[^%\n]+%|![^!\n]+!)/, className: "cmd-var" },
+        { pattern: /^\/[A-Za-z0-9][\w-]*/, className: "cmd-flag", requireWhitespaceBefore: true },
+      ];
+
+      const SHELL_HIGHLIGHT_RULES = [
+        { pattern: /^(?:"(?:\\.|[^"\\\n])*"|'[^'\n]*')/, className: "cmd-string" },
+        { pattern: /^(?:\$\{[^}\n]+\}|\$[A-Za-z_][A-Za-z0-9_]*|\$[0-9#?*@!-])/, className: "cmd-var" },
+        { pattern: /^--?[A-Za-z0-9][\w-]*/, className: "cmd-flag", requireWhitespaceBefore: true },
+      ];
+
+      const POWERSHELL_HIGHLIGHT_RULES = [
+        { pattern: /^(?:"(?:`.|[^"`\n])*"|'(?:''|[^'\n])*')/, className: "cmd-string" },
+        { pattern: /^(?:\$\{[^}\n]+\}|\$[A-Za-z_][A-Za-z0-9_:]*)/, className: "cmd-var" },
+        { pattern: /^-[A-Za-z][A-Za-z0-9-]*/, className: "cmd-flag", requireWhitespaceBefore: true },
+      ];
+
       function highlightCmdCode(text) {
         const cmdKeywords = new Set([
           "echo",
@@ -3824,11 +3884,7 @@
             const safeCmd = cmdKeywords.has(cmd.toLowerCase())
               ? `<span class="cmd-keyword">${escapeHtml(cmd)}</span>`
               : `<span class="cmd-command">${escapeHtml(cmd)}</span>`;
-            let safeRest = escapeHtml(rest);
-            safeRest = safeRest.replace(/(%[^%\n]+%|![^!\n]+!)/g, "<span class=\"cmd-var\">$1</span>");
-            safeRest = safeRest.replace(/(\"[^\"]*\")/g, "<span class=\"cmd-string\">$1</span>");
-            safeRest = safeRest.replace(/(^|\s)(\/[A-Za-z0-9][\w-]*)/g, "$1<span class=\"cmd-flag\">$2</span>");
-            return `${safePrefix}${safeCmd}${safeRest}`;
+            return `${safePrefix}${safeCmd}${highlightCodeTokens(rest, CMD_HIGHLIGHT_RULES)}`;
           })
           .join("\n");
       }
@@ -3854,10 +3910,7 @@
             const match = rest.match(/^(\s*)([A-Za-z0-9_.\/-]+)(.*)$/);
             if (!match) return `${prompt}${escapeHtml(rest)}`;
             const [, leading, cmd, tail] = match;
-            let safeTail = escapeHtml(tail);
-            safeTail = safeTail.replace(/(^|\s)(--?[A-Za-z0-9][\w-]*)/g, "$1<span class=\"cmd-flag\">$2</span>");
-            safeTail = safeTail.replace(/(\$[A-Za-z_][A-Za-z0-9_]*|\$\{[^}\n]+\})/g, "<span class=\"cmd-var\">$1</span>");
-            safeTail = safeTail.replace(/(\"[^\"]*\"|'[^']*')/g, "<span class=\"cmd-string\">$1</span>");
+            const safeTail = highlightCodeTokens(tail, SHELL_HIGHLIGHT_RULES);
             return `${prompt}${escapeHtml(leading)}<span class="cmd-command">${escapeHtml(cmd)}</span>${safeTail}`;
           })
           .join("\n");
@@ -3875,10 +3928,7 @@
             const match = raw.match(/^(\s*)([A-Za-z][\w.-]*(?:-[A-Za-z][\w.-]*)?)(.*)$/);
             if (!match) return escapeHtml(raw);
             const [, leading, cmd, tail] = match;
-            let safeTail = escapeHtml(tail);
-            safeTail = safeTail.replace(/(^|\s)(-[A-Za-z][A-Za-z0-9-]*)/g, "$1<span class=\"cmd-flag\">$2</span>");
-            safeTail = safeTail.replace(/(\$[A-Za-z_][A-Za-z0-9_]*|\$\{[^}\n]+\})/g, "<span class=\"cmd-var\">$1</span>");
-            safeTail = safeTail.replace(/(\"[^\"]*\"|'[^']*')/g, "<span class=\"cmd-string\">$1</span>");
+            const safeTail = highlightCodeTokens(tail, POWERSHELL_HIGHLIGHT_RULES);
             return `${escapeHtml(leading)}<span class="cmd-command">${escapeHtml(cmd)}</span>${safeTail}`;
           })
           .join("\n");
