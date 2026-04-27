@@ -2480,6 +2480,10 @@
       let typingTimer = null;
       let streamAbortController = null;
       let pendingAttachments = [];
+      const MAX_ATTACHMENTS_PER_MESSAGE = 8;
+      // UI safety cutoff, not an upstream/model context limit. Model limits are token-based and model-specific.
+      const LONG_TEXT_ATTACHMENT_THRESHOLD = 12000;
+      const MAX_TEXT_ATTACHMENT_CHARS = 20000;
       let currentTheme = "light";
       let editingAgentId = null;
       let authStatusCache = null;
@@ -2941,6 +2945,37 @@
         return `att-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
       }
 
+      function textByteSize(text) {
+        const value = String(text || "");
+        if (window.TextEncoder) {
+          return new TextEncoder().encode(value).length;
+        }
+        return new Blob([value]).size;
+      }
+
+      function buildLongTextAttachmentName(prefix = "long-text") {
+        const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+        return `${prefix}-${stamp}.txt`;
+      }
+
+      function shouldConvertTextToAttachment(text) {
+        return String(text || "").trim().length >= LONG_TEXT_ATTACHMENT_THRESHOLD;
+      }
+
+      function buildTextAttachmentFromLongText(text, prefix = "long-text") {
+        const source = String(text || "");
+        const storedText = source.slice(0, MAX_TEXT_ATTACHMENT_CHARS);
+        return {
+          id: makeAttachmentId(),
+          name: buildLongTextAttachmentName(prefix),
+          mime_type: "text/plain;charset=utf-8",
+          size: textByteSize(source),
+          kind: "text",
+          text_content: storedText,
+          text_truncated: source.length > storedText.length,
+        };
+      }
+
       function fileToDataURL(file) {
         return new Promise((resolve, reject) => {
           const reader = new FileReader();
@@ -2969,7 +3004,7 @@
         }
         try {
           const text = await file.text();
-          return { ...base, kind: "text", text_content: String(text || "").slice(0, 20000) };
+          return { ...base, kind: "text", text_content: String(text || "").slice(0, MAX_TEXT_ATTACHMENT_CHARS) };
         } catch (_) {
           return base;
         }
@@ -3008,8 +3043,21 @@
             if (errorEl) errorEl.textContent = e.message || "附件处理失败";
           }
         }
-        pendingAttachments = pendingAttachments.slice(0, 8);
+        pendingAttachments = pendingAttachments.slice(0, MAX_ATTACHMENTS_PER_MESSAGE);
         renderComposeAttachments();
+      }
+
+      function addLongTextToPending(text, prefix = "long-paste") {
+        const errorEl = document.getElementById("sendError");
+        if (pendingAttachments.length >= MAX_ATTACHMENTS_PER_MESSAGE) {
+          if (errorEl) errorEl.textContent = `附件最多 ${MAX_ATTACHMENTS_PER_MESSAGE} 个，请先移除一个再粘贴长文本`;
+          return false;
+        }
+        const att = buildTextAttachmentFromLongText(text, prefix);
+        pendingAttachments.push(att);
+        renderComposeAttachments();
+        if (errorEl) errorEl.textContent = "";
+        return true;
       }
 
       function removeAttachment(id) {
@@ -4710,7 +4758,7 @@ function renderAgents() {
         const reasoningSel = document.getElementById("chatReasoning");
         const chat = selectedChat();
         const selectedModelId = chat?.model_id || state.default_model_id || "";
-        const selectedAgentId = chat?.mask_id || state.default_mask_id || "";
+        const selectedAgentId = chat ? String(chat.mask_id || "") : state.default_mask_id || "";
         const selectedReasoning = normalizeReasoningEffort(chat?.reasoning_effort || "");
         const selectableModels = (state.models || []).filter((m) => m.enabled !== false);
 
@@ -5128,8 +5176,28 @@ function renderAgents() {
         }
         const errorEl = document.getElementById("sendError");
         const messageInput = document.getElementById("messageText");
-        const message = messageInput.value.trim();
-        const outgoingAttachments = serializeOutgoingAttachments();
+        const messageBeforeSend = messageInput.value;
+        let message = messageBeforeSend.trim();
+        let outgoingAttachments = serializeOutgoingAttachments();
+        if (shouldConvertTextToAttachment(messageBeforeSend)) {
+          if (outgoingAttachments.length >= MAX_ATTACHMENTS_PER_MESSAGE) {
+            errorEl.textContent = `附件最多 ${MAX_ATTACHMENTS_PER_MESSAGE} 个，请先移除一个再发送长文本`;
+            return;
+          }
+          const longTextAttachment = buildTextAttachmentFromLongText(messageBeforeSend, "long-message");
+          outgoingAttachments = [
+            ...outgoingAttachments,
+            {
+              name: longTextAttachment.name,
+              mime_type: longTextAttachment.mime_type,
+              size: Number(longTextAttachment.size || 0),
+              kind: longTextAttachment.kind || "text",
+              data_url: null,
+              text_content: longTextAttachment.text_content || null,
+            },
+          ];
+          message = "";
+        }
         if (!message && !outgoingAttachments.length) {
           errorEl.textContent = "请输入消息或添加附件";
           return;
@@ -5177,6 +5245,7 @@ function renderAgents() {
         }
 
         const originalMessage = message;
+        const restoreMessage = messageBeforeSend;
         const originalPendingAttachments = pendingAttachments.map((att) => ({ ...att }));
         messageInput.value = "";
         clearPendingAttachments();
@@ -5328,7 +5397,7 @@ function renderAgents() {
             await loadState();
           } else {
             errorEl.textContent = "发送失败：" + e.message;
-            messageInput.value = originalMessage;
+            messageInput.value = restoreMessage;
             pendingAttachments = originalPendingAttachments;
             renderComposeAttachments();
             pendingReply = null;
@@ -5365,9 +5434,16 @@ function renderAgents() {
           .filter((item) => item.kind === "file")
           .map((item) => item.getAsFile())
           .filter(Boolean);
-        if (!files.length) return;
+        const pastedText = e.clipboardData?.getData("text/plain") || "";
+        const shouldAttachText = shouldConvertTextToAttachment(pastedText);
+        if (!files.length && !shouldAttachText) return;
         e.preventDefault();
-        await addFilesToPending(files);
+        if (files.length) {
+          await addFilesToPending(files);
+        }
+        if (shouldAttachText) {
+          addLongTextToPending(pastedText, "long-paste");
+        }
       });
 
       document.getElementById("filePicker").addEventListener("change", async (e) => {
