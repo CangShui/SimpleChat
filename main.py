@@ -1289,7 +1289,7 @@ def _is_image_generation_model(model_name: str) -> bool:
 def _build_images_generations_url(base_url: str) -> str:
     trimmed = str(base_url or "").strip().rstrip("/")
     if not trimmed:
-        raise HTTPException(status_code=400, detail="妯″瀷鏈厤缃?base_url")
+        raise HTTPException(status_code=400, detail="模型未配置 base_url")
     if not trimmed.startswith("http"):
         trimmed = f"https://{trimmed}"
 
@@ -2041,12 +2041,12 @@ def get_current_user_from_request(request: Request) -> dict[str, Any]:
 
     store = load_store()
     if not is_initialized(store):
-        raise HTTPException(status_code=409, detail="搴旂敤灏氭湭鍒濆鍖栵紝璇峰厛瀹屾垚棣栨璁剧疆")
+        raise HTTPException(status_code=409, detail="应用尚未初始化，请先完成首次设置")
 
     user_id = verify_session_token(store, request.cookies.get(SESSION_COOKIE))
     user = find_user_by_id(store, user_id)
     if not user or not user.get("enabled", True):
-        raise HTTPException(status_code=401, detail="鏈櫥褰曟垨浼氳瘽鏃犳晥")
+        raise HTTPException(status_code=401, detail="未登录或会话无效")
     request.state.current_user = user
     return user
 
@@ -2057,7 +2057,7 @@ def require_auth(request: Request) -> dict[str, Any]:
 
 def require_admin(user: dict[str, Any] = Depends(require_auth)) -> dict[str, Any]:
     if user.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="浠呯鐞嗗憳鍙墽琛屾鎿嶄綔")
+        raise HTTPException(status_code=403, detail="仅管理员可执行此操作")
     return user
 
 
@@ -2988,7 +2988,7 @@ def auth_status(request: Request):
 def setup_init(payload: SetupInitInput, response: Response):
     store = load_store()
     if is_initialized(store):
-        raise HTTPException(status_code=409, detail="搴旂敤宸茬粡鍒濆鍖栵紝鏃犻渶閲嶅璁剧疆")
+        raise HTTPException(status_code=409, detail="应用已经初始化，无需重复设置")
 
     ts = now_ts()
     admin_user = {
@@ -3068,14 +3068,14 @@ def setup_init(payload: SetupInitInput, response: Response):
 def auth_login(payload: LoginInput, response: Response):
     store = load_store()
     if not is_initialized(store):
-        raise HTTPException(status_code=409, detail="搴旂敤灏氭湭鍒濆鍖栵紝璇峰厛瀹屾垚棣栨璁剧疆")
+        raise HTTPException(status_code=409, detail="应用尚未初始化，请先完成首次设置")
 
     user = find_user_by_username(store, payload.username)
     if not user or not user.get("enabled", True):
-        raise HTTPException(status_code=401, detail="鐢ㄦ埛鍚嶆垨瀵嗙爜閿欒")
+        raise HTTPException(status_code=401, detail="用户名或密码错误")
 
     if user.get("password_sha256") != sha256_hex(payload.password):
-        raise HTTPException(status_code=401, detail="鐢ㄦ埛鍚嶆垨瀵嗙爜閿欒")
+        raise HTTPException(status_code=401, detail="用户名或密码错误")
 
     token = create_session_token(store, user["id"])
     response.set_cookie(
@@ -3107,7 +3107,7 @@ def get_state(current_user: dict[str, Any] = Depends(require_auth)):
     store = load_store()
     user = find_user_by_id(store, current_user.get("id"))
     if not user or not user.get("enabled", True):
-        raise HTTPException(status_code=401, detail="鏈櫥褰曟垨浼氳瘽鏃犳晥")
+        raise HTTPException(status_code=401, detail="未登录或会话无效")
 
     changed = _ensure_user_default_model(store, user)
     changed = _ensure_user_default_mask(store, user) or changed
@@ -3224,7 +3224,7 @@ def get_masks(current_user: dict[str, Any] = Depends(require_auth)):
     store = load_store()
     user = find_user_by_id(store, current_user.get("id"))
     if not user:
-        raise HTTPException(status_code=401, detail="鏈櫥褰曟垨浼氳瘽鏃犳晥")
+        raise HTTPException(status_code=401, detail="未登录或会话无效")
     masks = [serialize_mask_for_user(m, user, store) for m in visible_masks_for_user(store, user)]
     return {"masks": masks}
 
@@ -3234,7 +3234,7 @@ def upsert_mask(payload: MaskInput, current_user: dict[str, Any] = Depends(requi
     store = load_store()
     user = find_user_by_id(store, current_user.get("id"))
     if not user:
-        raise HTTPException(status_code=401, detail="鏈櫥褰曟垨浼氳瘽鏃犳晥")
+        raise HTTPException(status_code=401, detail="未登录或会话无效")
 
     mask = None
     if payload.id:
@@ -3242,7 +3242,7 @@ def upsert_mask(payload: MaskInput, current_user: dict[str, Any] = Depends(requi
         if not mask:
             raise HTTPException(status_code=404, detail="agent 不存在")
         if not can_edit_mask(mask, user):
-            raise HTTPException(status_code=403, detail="鍙兘缂栬緫鑷繁鐨?Agent")
+            raise HTTPException(status_code=403, detail="只能编辑自己的 Agent")
 
     if mask is None:
         mask = {
@@ -3291,15 +3291,15 @@ def set_mask_public(mask_id: str, payload: MaskPublicInput, current_user: dict[s
     store = load_store()
     user = find_user_by_id(store, current_user.get("id"))
     if not user:
-        raise HTTPException(status_code=401, detail="鏈櫥褰曟垨浼氳瘽鏃犳晥")
+        raise HTTPException(status_code=401, detail="未登录或会话无效")
     if user.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="浠呯鐞嗗憳鍙缃叕鍏?Agent")
+        raise HTTPException(status_code=403, detail="仅管理员可设置公共 Agent")
 
     mask = find_mask_by_id(store, mask_id)
     if not mask:
         raise HTTPException(status_code=404, detail="agent 不存在")
     if not can_edit_mask(mask, user):
-        raise HTTPException(status_code=403, detail="鍙兘璁剧疆鑷繁鍒涘缓鐨?Agent")
+        raise HTTPException(status_code=403, detail="只能设置自己创建的 Agent")
 
     if mask.get("is_builtin"):
         mask["is_public"] = True
@@ -3315,13 +3315,13 @@ def delete_mask(mask_id: str, current_user: dict[str, Any] = Depends(require_aut
     store = load_store()
     user = find_user_by_id(store, current_user.get("id"))
     if not user:
-        raise HTTPException(status_code=401, detail="鏈櫥褰曟垨浼氳瘽鏃犳晥")
+        raise HTTPException(status_code=401, detail="未登录或会话无效")
 
     mask = find_mask_by_id(store, mask_id)
     if not mask:
         raise HTTPException(status_code=404, detail="agent 不存在")
     if not can_edit_mask(mask, user):
-        raise HTTPException(status_code=403, detail="鍙兘鍒犻櫎鑷繁鐨?Agent")
+        raise HTTPException(status_code=403, detail="只能删除自己的 Agent")
 
     store["masks"] = [m for m in store.get("masks", []) if m.get("id") != mask_id]
     for u in store.get("users", []):
@@ -3341,7 +3341,7 @@ def get_default_agent(current_user: dict[str, Any] = Depends(require_auth)):
     store = load_store()
     user = find_user_by_id(store, current_user.get("id"))
     if not user:
-        raise HTTPException(status_code=401, detail="鏈櫥褰曟垨浼氳瘽鏃犳晥")
+        raise HTTPException(status_code=401, detail="未登录或会话无效")
     return {"default_agent_id": user.get("default_mask_id")}
 
 
@@ -3350,7 +3350,7 @@ def set_default_agent(payload: DefaultAgentInput, current_user: dict[str, Any] =
     store = load_store()
     user = find_user_by_id(store, current_user.get("id"))
     if not user:
-        raise HTTPException(status_code=401, detail="鏈櫥褰曟垨浼氳瘽鏃犳晥")
+        raise HTTPException(status_code=401, detail="未登录或会话无效")
 
     if payload.agent_id is not None:
         mask = find_mask_by_id(store, payload.agent_id)
@@ -3371,7 +3371,7 @@ def set_user_retention_settings(
     store = load_store()
     user = find_user_by_id(store, current_user.get("id"))
     if not user:
-        raise HTTPException(status_code=401, detail="鏈櫥褰曟垨浼氳瘽鏃犳晥")
+        raise HTTPException(status_code=401, detail="未登录或会话无效")
 
     text_ttl_hours = _normalize_retention_hours(payload.message_text_ttl_hours, 0)
     media_ttl_hours = _normalize_retention_hours(payload.message_media_ttl_hours, 0)
@@ -3391,7 +3391,7 @@ def get_default_model(current_user: dict[str, Any] = Depends(require_auth)):
     store = load_store()
     user = find_user_by_id(store, current_user.get("id"))
     if not user:
-        raise HTTPException(status_code=401, detail="鏈櫥褰曟垨浼氳瘽鏃犳晥")
+        raise HTTPException(status_code=401, detail="未登录或会话无效")
 
     changed = _ensure_user_default_model(store, user)
     if changed:
@@ -3404,7 +3404,7 @@ def set_default_model(payload: DefaultModelInput, current_user: dict[str, Any] =
     store = load_store()
     user = find_user_by_id(store, current_user.get("id"))
     if not user:
-        raise HTTPException(status_code=401, detail="鏈櫥褰曟垨浼氳瘽鏃犳晥")
+        raise HTTPException(status_code=401, detail="未登录或会话无效")
 
     if payload.model_id is not None:
         model = _resolve_visible_model(store, user, payload.model_id)
@@ -3433,7 +3433,7 @@ def clear_my_chats(current_user: dict[str, Any] = Depends(require_auth)):
     store = load_store()
     user = find_user_by_id(store, current_user.get("id"))
     if not user:
-        raise HTTPException(status_code=401, detail="鏈櫥褰曟垨浼氳瘽鏃犳晥")
+        raise HTTPException(status_code=401, detail="未登录或会话无效")
 
     removed_chats = _clear_chats_in_store(store, user.get("id"))
     if removed_chats > 0:
@@ -3446,7 +3446,7 @@ def create_chat(payload: ChatCreateInput, current_user: dict[str, Any] = Depends
     store = load_store()
     user = find_user_by_id(store, current_user.get("id"))
     if not user:
-        raise HTTPException(status_code=401, detail="鏈櫥褰曟垨浼氳瘽鏃犳晥")
+        raise HTTPException(status_code=401, detail="未登录或会话无效")
 
     model_changed = _ensure_user_default_model(store, user)
     mask_changed = _ensure_user_default_mask(store, user)
@@ -3498,7 +3498,7 @@ def update_chat_config(
     store = load_store()
     user = find_user_by_id(store, current_user.get("id"))
     if not user:
-        raise HTTPException(status_code=401, detail="鏈櫥褰曟垨浼氳瘽鏃犳晥")
+        raise HTTPException(status_code=401, detail="未登录或会话无效")
 
     chat = find_chat_for_user(store, chat_id, user.get("id"))
     if not chat:
@@ -3568,7 +3568,7 @@ def _resolve_chat_model_and_mask(
     if not model:
         model = _pick_first_enabled_model(store)
     if not model:
-        raise HTTPException(status_code=400, detail="璇峰厛閰嶇疆妯″瀷")
+        raise HTTPException(status_code=400, detail="请先配置模型")
     if not model.get("enabled", True):
         raise HTTPException(status_code=400, detail="模型已禁用")
 
@@ -3625,7 +3625,7 @@ async def send_message(payload: SendMessageInput, current_user: dict[str, Any] =
     store = load_store()
     user = find_user_by_id(store, current_user.get("id"))
     if not user:
-        raise HTTPException(status_code=401, detail="鏈櫥褰曟垨浼氳瘽鏃犳晥")
+        raise HTTPException(status_code=401, detail="未登录或会话无效")
 
     chat = find_chat_for_user(store, payload.chat_id, user.get("id"))
     if not chat:
@@ -3729,7 +3729,7 @@ async def send_message_stream(
     store = load_store()
     user = find_user_by_id(store, current_user.get("id"))
     if not user:
-        raise HTTPException(status_code=401, detail="鏈櫥褰曟垨浼氳瘽鏃犳晥")
+        raise HTTPException(status_code=401, detail="未登录或会话无效")
 
     chat = find_chat_for_user(store, payload.chat_id, user.get("id"))
     if not chat:
@@ -4024,7 +4024,7 @@ def admin_create_user(payload: AdminUserCreateInput, _admin: dict[str, Any] = De
     if not username:
         raise HTTPException(status_code=400, detail="用户名不能为空")
     if find_user_by_username(store, username):
-        raise HTTPException(status_code=400, detail="鐢ㄦ埛鍚嶅凡瀛樺湪")
+        raise HTTPException(status_code=400, detail="用户名已存在")
 
     role = _normalize_role(payload.role)
     ts = now_ts()
@@ -4082,7 +4082,7 @@ def admin_delete_user(user_id: str, admin_user: dict[str, Any] = Depends(require
     if user.get("role") == "admin":
         admin_count = sum(1 for u in store.get("users", []) if u.get("role") == "admin")
         if admin_count <= 1:
-            raise HTTPException(status_code=400, detail="鑷冲皯淇濈暀涓€涓鐞嗗憳璐﹀彿")
+            raise HTTPException(status_code=400, detail="至少保留一个管理员账号")
 
     removed_mask_ids = {m.get("id") for m in store.get("masks", []) if m.get("owner_user_id") == user_id}
 
