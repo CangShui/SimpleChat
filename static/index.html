@@ -1033,7 +1033,7 @@
         background: var(--white);
       }
 
-      @media (max-width: 399px) {
+      @media (max-width: 365px) {
         .chat-config-row {
           grid-template-columns: 1fr;
         }
@@ -1285,7 +1285,7 @@
         grid-template-rows: auto auto;
         align-content: start;
         gap: max(4px, calc(var(--ui-font-size) * 0.18));
-        min-height: calc(var(--ui-font-size) * 2.9);
+        min-height: max(48px, calc(var(--ui-font-size) * 2.9));
         overflow: hidden;
         cursor: pointer;
       }
@@ -1296,7 +1296,7 @@
 
       .jump-item-index {
         min-width: 0;
-        font-size: max(12px, calc(var(--ui-font-size) - 8px));
+        font-size: max(11px, calc(var(--ui-font-size) - 8px));
         line-height: 1.25;
         white-space: nowrap;
         overflow: hidden;
@@ -1307,7 +1307,7 @@
       .jump-item-text {
         min-width: 0;
         margin-top: 0;
-        font-size: var(--ui-font-size);
+        font-size: max(12px, var(--ui-font-size));
         line-height: 1.28;
         display: block;
         white-space: nowrap;
@@ -2406,6 +2406,24 @@
             <button style="width: 100%; margin-top: 8px;" onclick="saveAppSettings()">保存应用信息</button>
           </div>
           <div class="form-card" style="margin-bottom: 10px;">
+            <div class="form-title">模型请求上下文</div>
+            <div class="retention-grid">
+              <div class="retention-item">
+                <label for="upstreamContextMessages">最近消息条数</label>
+                <input id="upstreamContextMessages" type="number" min="1" max="500" step="1" placeholder="40" />
+              </div>
+              <div class="retention-item">
+                <label for="upstreamContextChars">最大上下文字符</label>
+                <input id="upstreamContextChars" type="number" min="1000" max="1000000" step="1000" placeholder="120000" />
+              </div>
+              <div class="retention-item">
+                <label for="upstreamImageMessages">带图历史条数</label>
+                <input id="upstreamImageMessages" type="number" min="0" max="50" step="1" placeholder="4" />
+              </div>
+            </div>
+            <button style="width: 100%; margin-top: 8px;" onclick="saveAppSettings()">保存上下文设置</button>
+          </div>
+          <div class="form-card" style="margin-bottom: 10px;">
             <div class="form-title">管理员操作</div>
             <button class="danger-btn" style="width: 100%;" onclick="purgeAllChats()">
               删除所有用户会话数据
@@ -2492,8 +2510,6 @@
       let imagePreviewOpen = false;
       let chatSearchQuery = "";
       let chatSearchTimer = null;
-      let chatSearchIndex = new Map();
-      let chatSearchMessageIndex = new Map();
       let chatSearchMessageResults = [];
       let chatSearchResultCursor = -1;
       let chatSearchActiveMessageKey = "";
@@ -2501,6 +2517,7 @@
       let pendingAppIconDataUrl = "";
       let appIconTouched = false;
       const CHAT_SEARCH_DEBOUNCE_MS = 180;
+      const MAX_CHAT_SEARCH_RESULTS = 500;
       const REASONING_EFFORT_OPTIONS = [
         { value: "", label: "推理等级" },
         { value: "low", label: "低" },
@@ -2608,6 +2625,13 @@
         return ["low", "medium", "high", "xhigh"].includes(effort) ? effort : "";
       }
 
+      function clampIntegerInputValue(elementId, fallback, min, max) {
+        const el = document.getElementById(elementId);
+        const raw = Number(el?.value || fallback);
+        if (!Number.isFinite(raw)) return fallback;
+        return Math.min(max, Math.max(min, Math.floor(raw)));
+      }
+
       function buildAttachmentSearchText(att) {
         let text = `${att?.name || ""} `;
         if (typeof att?.text_content === "string" && att.text_content) {
@@ -2630,34 +2654,6 @@
         return normalizeSearchText(text);
       }
 
-      function buildChatSearchIndex() {
-        const chats = Array.isArray(state?.chats) ? state.chats : [];
-        const nextChatIndex = new Map();
-        const nextMessageIndex = new Map();
-        const MAX_SEARCH_CHARS_PER_CHAT = 26000;
-
-        for (const chat of chats) {
-          let raw = `${chat?.title || ""} `;
-          const messages = Array.isArray(chat?.messages) ? chat.messages : [];
-
-          for (let msgIdx = 0; msgIdx < messages.length; msgIdx += 1) {
-            const msg = messages[msgIdx];
-            const messageSearchText = buildMessageSearchText(msg);
-            nextMessageIndex.set(`${chat.id}:${msgIdx}`, messageSearchText);
-            if (raw.length >= MAX_SEARCH_CHARS_PER_CHAT) break;
-            raw += `${messageSearchText} `;
-          }
-
-          if (raw.length > MAX_SEARCH_CHARS_PER_CHAT) {
-            raw = raw.slice(0, MAX_SEARCH_CHARS_PER_CHAT);
-          }
-          nextChatIndex.set(chat.id, normalizeSearchText(raw));
-        }
-
-        chatSearchIndex = nextChatIndex;
-        chatSearchMessageIndex = nextMessageIndex;
-      }
-
       function collectMessageSearchResults(query) {
         const chats = Array.isArray(state?.chats) ? state.chats : [];
         if (!query) return [];
@@ -2666,7 +2662,7 @@
           const messages = Array.isArray(chat?.messages) ? chat.messages : [];
           for (let msgIdx = 0; msgIdx < messages.length; msgIdx += 1) {
             const key = `${chat.id}:${msgIdx}`;
-            const searchable = chatSearchMessageIndex.get(key) || "";
+            const searchable = buildMessageSearchText(messages[msgIdx]);
             const hitCount = countOccurrences(searchable, query);
             for (let occ = 0; occ < hitCount; occ += 1) {
               results.push({
@@ -2676,6 +2672,9 @@
                 msgIndex: msgIdx,
                 occurrence: occ,
               });
+              if (results.length >= MAX_CHAT_SEARCH_RESULTS) {
+                return results;
+              }
             }
           }
         }
@@ -2823,7 +2822,13 @@
         const chats = Array.isArray(state?.chats) ? state.chats : [];
         const query = normalizeSearchText(chatSearchQuery);
         if (!query) return chats;
-        return chats.filter((chat) => (chatSearchIndex.get(chat.id) || "").includes(query));
+        return chats.filter((chat) => {
+          if (normalizeSearchText(chat?.title || "").includes(query)) {
+            return true;
+          }
+          const messages = Array.isArray(chat?.messages) ? chat.messages : [];
+          return messages.some((msg) => buildMessageSearchText(msg).includes(query));
+        });
       }
 
       function getSearchHighlightTerms() {
@@ -3023,7 +3028,7 @@
             return `
               <span class="compose-attachment" title="${escapeAttr(label)}">
                 <span class="compose-attachment-text">${escapeHtml(label)}</span>
-                <button class="compose-attachment-remove" type="button" onclick="removeAttachment('${att.id}')">脳</button>
+                <button class="compose-attachment-remove" type="button" onclick="removeAttachment('${att.id}')">×</button>
               </span>
             `;
           })
@@ -3335,8 +3340,45 @@
           .join("\n\n");
       }
 
+      function looksLikeStandaloneShellScript(text) {
+        const source = String(text || "");
+        const trimmed = source.trim();
+        if (!trimmed.includes("\n")) return false;
+        if (/^#![^\n]*\b(?:bash|sh|zsh|ksh|dash)\b/i.test(trimmed)) return true;
+
+        const lines = trimmed.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+        if (lines.length < 6) return false;
+        let score = 0;
+        const scriptPatterns = [
+          /^function\s+[A-Za-z_][\w-]*\s*\(\)\s*\{/,
+          /^[A-Za-z_][\w-]*\s*\(\)\s*\{/,
+          /^(if|elif|else|fi|for|while|do|done|case|esac)\b/,
+          /^declare\b/,
+          /^export\b/,
+          /\bgetopts\b/,
+          /\[\[|\]\]/,
+          /\$\{[^}\n]+\}/,
+          /\$[A-Za-z_@#?*!][A-Za-z0-9_@#?*!-]*/,
+          /\b(?:useradd|usermod|groupadd|chmod|chown|ssh-keygen|sudoers)\b/,
+        ];
+        lines.forEach((line) => {
+          if (scriptPatterns.some((pattern) => pattern.test(line))) {
+            score += 1;
+          }
+        });
+        return score >= 4;
+      }
+
+      function wrapWholeCodeBlock(text, lang) {
+        const source = String(text || "").replace(/\s+$/, "");
+        return `\`\`\`${lang}\n${source}\n\`\`\``;
+      }
+
       function preprocessMarkdownContent(text) {
         const source = String(text || "");
+        if (!source.includes("```") && looksLikeStandaloneShellScript(source)) {
+          return wrapWholeCodeBlock(source, "bash");
+        }
         const regex = /```[\s\S]*?```/g;
         let last = 0;
         const chunks = [];
@@ -4442,8 +4484,6 @@
         state = null;
         selectedChatId = null;
         chatSearchQuery = "";
-        chatSearchIndex = new Map();
-        chatSearchMessageIndex = new Map();
         chatSearchMessageResults = [];
         chatSearchResultCursor = -1;
         chatSearchActiveMessageKey = "";
@@ -4461,7 +4501,6 @@
         state = await api("/api/state", { method: "GET", headers: {} });
         applyAppMeta(state?.app);
         updateSettingsVisibility();
-        buildChatSearchIndex();
         if (!selectedChatId && state.chats.length > 0) {
           selectedChatId = state.chats[0].id;
         }
@@ -4983,6 +5022,9 @@ function renderAgents() {
         }
         document.getElementById("appDisplayTitle").value = state?.app?.title || "";
         document.getElementById("appDisplaySubtitle").value = state?.app?.subtitle || "";
+        document.getElementById("upstreamContextMessages").value = Number(state?.app?.upstream_context_messages || 40);
+        document.getElementById("upstreamContextChars").value = Number(state?.app?.upstream_context_chars || 120000);
+        document.getElementById("upstreamImageMessages").value = Number(state?.app?.upstream_image_messages ?? 4);
         pendingAppIconDataUrl = "";
         appIconTouched = false;
         renderAppIconPreview();
@@ -5038,6 +5080,9 @@ function renderAgents() {
         const body = {
           app_title: app_title || null,
           app_subtitle: app_subtitle || null,
+          upstream_context_messages: clampIntegerInputValue("upstreamContextMessages", 40, 1, 500),
+          upstream_context_chars: clampIntegerInputValue("upstreamContextChars", 120000, 1000, 1000000),
+          upstream_image_messages: clampIntegerInputValue("upstreamImageMessages", 4, 0, 50),
         };
         if (appIconTouched) {
           body.app_icon_data_url = pendingAppIconDataUrl || "";
