@@ -64,6 +64,31 @@ DEFAULT_MODEL_NAME = os.getenv("DEFAULT_MODEL_NAME", "gpt-5.5").strip() or "gpt-
 DEFAULT_BASE_URL = os.getenv("DEFAULT_BASE_URL", "").strip()
 DEFAULT_API_KEY = os.getenv("DEFAULT_API_KEY", "").strip()
 MAX_RETENTION_HOURS = 24 * 365 * 5
+MAX_UPSTREAM_CONTEXT_MESSAGES_LIMIT = 500
+MAX_UPSTREAM_CONTEXT_CHARS_LIMIT = 1_000_000
+MAX_UPSTREAM_IMAGE_MESSAGES_LIMIT = 50
+
+
+def _env_int(name: str, default: int, minimum: int) -> int:
+    try:
+        value = int(os.getenv(name, str(default)) or str(default))
+    except Exception:
+        value = default
+    return max(minimum, value)
+
+
+DEFAULT_UPSTREAM_CONTEXT_MESSAGES = min(
+    MAX_UPSTREAM_CONTEXT_MESSAGES_LIMIT,
+    _env_int("APP_MAX_UPSTREAM_CONTEXT_MESSAGES", 40, 1),
+)
+DEFAULT_UPSTREAM_CONTEXT_CHARS = min(
+    MAX_UPSTREAM_CONTEXT_CHARS_LIMIT,
+    _env_int("APP_MAX_UPSTREAM_CONTEXT_CHARS", 120000, 1000),
+)
+DEFAULT_UPSTREAM_IMAGE_MESSAGES = min(
+    MAX_UPSTREAM_IMAGE_MESSAGES_LIMIT,
+    _env_int("APP_MAX_UPSTREAM_IMAGE_MESSAGES", 4, 0),
+)
 
 BUILTIN_OPS_AGENT_NAME = "运维专家"
 BUILTIN_OPS_AGENT_PROMPT = """你是一名资深运维/运维开发工程师助手。
@@ -193,6 +218,39 @@ def _normalize_retention_hours(value: Any, default: int = 0) -> int:
     if ttl > MAX_RETENTION_HOURS:
         ttl = MAX_RETENTION_HOURS
     return ttl
+
+
+def _normalize_range_int(value: Any, default: int, minimum: int, maximum: int) -> int:
+    result = _safe_int(value, default)
+    if result < minimum:
+        return minimum
+    if result > maximum:
+        return maximum
+    return result
+
+
+def _normalize_upstream_context_settings(app_meta: dict[str, Any] | None) -> dict[str, int]:
+    meta = app_meta or {}
+    return {
+        "upstream_context_messages": _normalize_range_int(
+            meta.get("upstream_context_messages"),
+            DEFAULT_UPSTREAM_CONTEXT_MESSAGES,
+            1,
+            MAX_UPSTREAM_CONTEXT_MESSAGES_LIMIT,
+        ),
+        "upstream_context_chars": _normalize_range_int(
+            meta.get("upstream_context_chars"),
+            DEFAULT_UPSTREAM_CONTEXT_CHARS,
+            1000,
+            MAX_UPSTREAM_CONTEXT_CHARS_LIMIT,
+        ),
+        "upstream_image_messages": _normalize_range_int(
+            meta.get("upstream_image_messages"),
+            DEFAULT_UPSTREAM_IMAGE_MESSAGES,
+            0,
+            MAX_UPSTREAM_IMAGE_MESSAGES_LIMIT,
+        ),
+    }
 
 
 def _normalize_role(value: Any) -> str:
@@ -757,6 +815,7 @@ def _serialize_app_meta_for_client(app_meta: dict[str, Any] | None) -> dict[str,
         "message_ttl_hours": legacy_ttl_hours,
         "message_text_ttl_hours": text_ttl_hours,
         "message_media_ttl_hours": media_ttl_hours,
+        **_normalize_upstream_context_settings(meta),
     }
 
 
@@ -1335,6 +1394,9 @@ def default_store() -> dict[str, Any]:
             "message_text_ttl_hours": 0,
             "message_media_ttl_hours": 0,
             "message_ttl_hours": 0,
+            "upstream_context_messages": DEFAULT_UPSTREAM_CONTEXT_MESSAGES,
+            "upstream_context_chars": DEFAULT_UPSTREAM_CONTEXT_CHARS,
+            "upstream_image_messages": DEFAULT_UPSTREAM_IMAGE_MESSAGES,
             "session_secret": secrets.token_hex(32),
             "created_at": ts,
             "updated_at": ts,
@@ -1500,6 +1562,7 @@ def _normalize_v2_store(data: dict[str, Any]) -> tuple[dict[str, Any], bool]:
     legacy_ttl = _normalize_retention_hours(app_meta.get("message_ttl_hours"), 0)
     text_ttl = _normalize_retention_hours(app_meta.get("message_text_ttl_hours"), legacy_ttl)
     media_ttl = _normalize_retention_hours(app_meta.get("message_media_ttl_hours"), legacy_ttl)
+    context_settings = _normalize_upstream_context_settings(app_meta)
 
     if app_meta.get("message_text_ttl_hours") != text_ttl:
         app_meta["message_text_ttl_hours"] = text_ttl
@@ -1507,6 +1570,10 @@ def _normalize_v2_store(data: dict[str, Any]) -> tuple[dict[str, Any], bool]:
     if app_meta.get("message_media_ttl_hours") != media_ttl:
         app_meta["message_media_ttl_hours"] = media_ttl
         changed = True
+    for key, value in context_settings.items():
+        if app_meta.get(key) != value:
+            app_meta[key] = value
+            changed = True
 
     compatibility_ttl = (
         text_ttl
@@ -2326,11 +2393,72 @@ def _build_user_message_for_upstream(msg: dict[str, Any], protocol: str) -> dict
     return {"role": "user", "content": parts}
 
 
-def _build_request_messages(chat: dict[str, Any], mask: dict[str, Any] | None, protocol: str) -> list[dict[str, Any]]:
+def _message_context_size(msg: dict[str, Any]) -> int:
+    size = len(str(msg.get("content") or ""))
+    attachments = msg.get("attachments")
+    if isinstance(attachments, list):
+        for att in attachments:
+            if not isinstance(att, dict):
+                continue
+            size += len(str(att.get("text_content") or ""))
+            size += min(_safe_int(att.get("size"), 0), MAX_ATTACHMENT_DATA_URL_CHARS)
+    return size
+
+
+def _message_has_image_attachment(msg: dict[str, Any]) -> bool:
+    attachments = msg.get("attachments")
+    if not isinstance(attachments, list):
+        return False
+    return any(isinstance(att, dict) and att.get("kind") == "image" for att in attachments)
+
+
+def _trim_messages_for_upstream(
+    messages: list[Any],
+    context_settings: dict[str, int] | None = None,
+) -> list[dict[str, Any]]:
+    normalized = [msg for msg in messages if isinstance(msg, dict)]
+    if not normalized:
+        return []
+
+    settings = _normalize_upstream_context_settings(context_settings or {})
+    max_context_messages = settings["upstream_context_messages"]
+    max_context_chars = settings["upstream_context_chars"]
+    max_image_messages = settings["upstream_image_messages"]
+
+    recent = normalized[-max_context_messages:]
+    selected_reversed: list[dict[str, Any]] = []
+    total_size = 0
+    image_messages = 0
+    for msg in reversed(recent):
+        msg_size = _message_context_size(msg)
+        if selected_reversed and total_size + msg_size > max_context_chars:
+            break
+
+        if _message_has_image_attachment(msg):
+            image_messages += 1
+            if image_messages > max_image_messages:
+                slim = dict(msg)
+                slim.pop("attachments", None)
+                msg = slim
+                msg_size = len(str(msg.get("content") or ""))
+
+        selected_reversed.append(msg)
+        total_size += msg_size
+
+    selected_reversed.reverse()
+    return selected_reversed
+
+
+def _build_request_messages(
+    chat: dict[str, Any],
+    mask: dict[str, Any] | None,
+    protocol: str,
+    context_settings: dict[str, int] | None = None,
+) -> list[dict[str, Any]]:
     req_messages: list[dict[str, Any]] = []
     if mask and str(mask.get("prompt") or "").strip():
         req_messages.append({"role": "system", "content": mask["prompt"]})
-    for msg in chat.get("messages", []):
+    for msg in _trim_messages_for_upstream(chat.get("messages", []), context_settings):
         role = str(msg.get("role") or "").strip().lower()
         if role == "user":
             req_messages.append(_build_user_message_for_upstream(msg, protocol=protocol))
@@ -2815,6 +2943,21 @@ class AdminAppSettingsInput(BaseModel):
     app_title: str | None = None
     app_subtitle: str | None = None
     app_icon_data_url: str | None = None
+    upstream_context_messages: int | None = Field(
+        default=None,
+        ge=1,
+        le=MAX_UPSTREAM_CONTEXT_MESSAGES_LIMIT,
+    )
+    upstream_context_chars: int | None = Field(
+        default=None,
+        ge=1000,
+        le=MAX_UPSTREAM_CONTEXT_CHARS_LIMIT,
+    )
+    upstream_image_messages: int | None = Field(
+        default=None,
+        ge=0,
+        le=MAX_UPSTREAM_IMAGE_MESSAGES_LIMIT,
+    )
 
 
 app = FastAPI(title="My Chat")
@@ -3663,7 +3806,12 @@ async def send_message(payload: SendMessageInput, current_user: dict[str, Any] =
 
     _append_user_message(chat, message_text, attachments)
 
-    req_messages = _build_request_messages(chat, mask, protocol=protocol)
+    req_messages = _build_request_messages(
+        chat,
+        mask,
+        protocol=protocol,
+        context_settings=store.get("app") or {},
+    )
     enable_image_generation = protocol == "responses" and _looks_like_image_generation_request(
         message_text,
         model.get("name", ""),
@@ -3767,7 +3915,12 @@ async def send_message_stream(
 
     _append_user_message(chat, message_text, attachments)
 
-    req_messages = _build_request_messages(chat, mask, protocol=protocol)
+    req_messages = _build_request_messages(
+        chat,
+        mask,
+        protocol=protocol,
+        context_settings=store.get("app") or {},
+    )
     enable_image_generation = protocol == "responses" and _looks_like_image_generation_request(
         message_text,
         model.get("name", ""),
@@ -4133,6 +4286,25 @@ def admin_update_app_settings(
             app_meta["icon_filename"] = ""
             _remove_app_icon_files()
         app_meta.pop("icon_data_url", None)
+    current_context_settings = _normalize_upstream_context_settings(app_meta)
+    app_meta["upstream_context_messages"] = _normalize_range_int(
+        payload.upstream_context_messages,
+        current_context_settings["upstream_context_messages"],
+        1,
+        MAX_UPSTREAM_CONTEXT_MESSAGES_LIMIT,
+    )
+    app_meta["upstream_context_chars"] = _normalize_range_int(
+        payload.upstream_context_chars,
+        current_context_settings["upstream_context_chars"],
+        1000,
+        MAX_UPSTREAM_CONTEXT_CHARS_LIMIT,
+    )
+    app_meta["upstream_image_messages"] = _normalize_range_int(
+        payload.upstream_image_messages,
+        current_context_settings["upstream_image_messages"],
+        0,
+        MAX_UPSTREAM_IMAGE_MESSAGES_LIMIT,
+    )
     app_meta["updated_at"] = now_ts()
     store["app"] = app_meta
 
