@@ -695,6 +695,12 @@
         min-height: 18px;
       }
 
+      .plain-message-content {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+      }
+
       .message-action-row {
         margin-top: 0;
         position: absolute;
@@ -2424,6 +2430,16 @@
             <button style="width: 100%; margin-top: 8px;" onclick="saveAppSettings()">保存上下文设置</button>
           </div>
           <div class="form-card" style="margin-bottom: 10px;">
+            <div class="form-title">图片上传压缩</div>
+            <div class="retention-grid">
+              <div class="retention-item">
+                <label for="imageCompressionThresholdMb">超过大小自动压缩（MB）</label>
+                <input id="imageCompressionThresholdMb" type="number" min="0" max="50" step="1" placeholder="2（0 表示关闭）" />
+              </div>
+            </div>
+            <button style="width: 100%; margin-top: 8px;" onclick="saveAppSettings()">保存压缩设置</button>
+          </div>
+          <div class="form-card" style="margin-bottom: 10px;">
             <div class="form-title">管理员操作</div>
             <button class="danger-btn" style="width: 100%;" onclick="purgeAllChats()">
               删除所有用户会话数据
@@ -2518,6 +2534,10 @@
       let appIconTouched = false;
       const CHAT_SEARCH_DEBOUNCE_MS = 180;
       const MAX_CHAT_SEARCH_RESULTS = 500;
+      const IMAGE_COMPRESSION_PHOTO_MAX_EDGE = 2560;
+      const IMAGE_COMPRESSION_TEXT_MAX_EDGE = 4096;
+      const IMAGE_COMPRESSION_PHOTO_QUALITY = 0.92;
+      const IMAGE_COMPRESSION_TEXT_QUALITY = 0.96;
       const REASONING_EFFORT_OPTIONS = [
         { value: "", label: "推理等级" },
         { value: "low", label: "低" },
@@ -2990,25 +3010,128 @@
         });
       }
 
+      function imageCompressionThresholdBytes() {
+        const mb = Number(state?.app?.image_compression_threshold_mb ?? 2);
+        if (!Number.isFinite(mb) || mb <= 0) return 0;
+        return Math.floor(mb * 1024 * 1024);
+      }
+
+      function loadImageBitmapForCompression(file) {
+        if (window.createImageBitmap) {
+          return createImageBitmap(file);
+        }
+        return new Promise((resolve, reject) => {
+          const url = URL.createObjectURL(file);
+          const img = new Image();
+          img.onload = () => {
+            URL.revokeObjectURL(url);
+            resolve(img);
+          };
+          img.onerror = () => {
+            URL.revokeObjectURL(url);
+            reject(new Error("图片解码失败"));
+          };
+          img.src = url;
+        });
+      }
+
+      function canvasToBlob(canvas, mimeType, quality) {
+        return new Promise((resolve, reject) => {
+          canvas.toBlob(
+            (blob) => {
+              if (blob) resolve(blob);
+              else reject(new Error("图片压缩失败"));
+            },
+            mimeType,
+            quality,
+          );
+        });
+      }
+
+      function imageOutputSettings(sourceType) {
+        if (sourceType === "image/png") {
+          return {
+            type: "image/png",
+            ext: "png",
+            maxEdge: IMAGE_COMPRESSION_TEXT_MAX_EDGE,
+            quality: undefined,
+          };
+        }
+        if (sourceType === "image/webp") {
+          return {
+            type: "image/webp",
+            ext: "webp",
+            maxEdge: IMAGE_COMPRESSION_TEXT_MAX_EDGE,
+            quality: IMAGE_COMPRESSION_TEXT_QUALITY,
+          };
+        }
+        return {
+          type: "image/jpeg",
+          ext: "jpg",
+          maxEdge: IMAGE_COMPRESSION_PHOTO_MAX_EDGE,
+          quality: IMAGE_COMPRESSION_PHOTO_QUALITY,
+        };
+      }
+
+      async function compressImageFileIfNeeded(file) {
+        const threshold = imageCompressionThresholdBytes();
+        if (!threshold || !file || file.size <= threshold) return file;
+        const sourceType = String(file.type || "").toLowerCase();
+        if (!sourceType.startsWith("image/") || sourceType === "image/gif" || sourceType === "image/svg+xml") {
+          return file;
+        }
+
+        let bitmap = null;
+        try {
+          bitmap = await loadImageBitmapForCompression(file);
+          const width = Number(bitmap.width || bitmap.naturalWidth || 0);
+          const height = Number(bitmap.height || bitmap.naturalHeight || 0);
+          if (!width || !height) return file;
+          const output = imageOutputSettings(sourceType);
+          const scale = Math.min(1, output.maxEdge / Math.max(width, height));
+          const targetWidth = Math.max(1, Math.round(width * scale));
+          const targetHeight = Math.max(1, Math.round(height * scale));
+          const canvas = document.createElement("canvas");
+          canvas.width = targetWidth;
+          canvas.height = targetHeight;
+          const ctx = canvas.getContext("2d", { alpha: output.type === "image/png" });
+          if (!ctx) return file;
+          ctx.drawImage(bitmap, 0, 0, targetWidth, targetHeight);
+          const blob = await canvasToBlob(canvas, output.type, output.quality);
+          if (!blob || blob.size >= file.size) return file;
+          const baseName = String(file.name || "image").replace(/\.[^.]+$/, "");
+          return new File([blob], `${baseName}-compressed.${output.ext}`, {
+            type: output.type,
+            lastModified: Date.now(),
+          });
+        } catch (_) {
+          return file;
+        } finally {
+          if (bitmap && typeof bitmap.close === "function") {
+            bitmap.close();
+          }
+        }
+      }
+
       async function buildAttachmentFromFile(file) {
-        const MAX_FILE_SIZE = 6 * 1024 * 1024;
         if (!file) return null;
-        if (file.size > MAX_FILE_SIZE) {
-          throw new Error(`文件 ${file.name} 超过 6MB，暂不支持`);
+        let uploadFile = file;
+        if ((file.type || "").toLowerCase().startsWith("image/")) {
+          uploadFile = await compressImageFileIfNeeded(file);
         }
         const base = {
           id: makeAttachmentId(),
-          name: file.name || "attachment",
-          mime_type: file.type || "application/octet-stream",
-          size: file.size || 0,
+          name: uploadFile.name || file.name || "attachment",
+          mime_type: uploadFile.type || file.type || "application/octet-stream",
+          size: uploadFile.size || 0,
           kind: "file",
         };
-        if ((file.type || "").toLowerCase().startsWith("image/")) {
-          const dataUrl = await fileToDataURL(file);
+        if ((uploadFile.type || "").toLowerCase().startsWith("image/")) {
+          const dataUrl = await fileToDataURL(uploadFile);
           return { ...base, kind: "image", data_url: dataUrl };
         }
         try {
-          const text = await file.text();
+          const text = await uploadFile.text();
           return { ...base, kind: "text", text_content: String(text || "").slice(0, MAX_TEXT_ATTACHMENT_CHARS) };
         } catch (_) {
           return base;
@@ -3431,6 +3554,11 @@
         return `<div class="markdown-content">${safeHtml}</div>`;
       }
 
+      function renderPlainMessageContent(text) {
+        const source = String(text || "");
+        return `<div class="plain-message-content">${escapeHtml(source).replace(/\n/g, "<br>")}</div>`;
+      }
+
       function renderMessageAttachments(attachments) {
         const list = Array.isArray(attachments) ? attachments : [];
         if (!list.length) return "";
@@ -3817,6 +3945,30 @@
           const errorEl = document.getElementById("sendError");
           if (errorEl) errorEl.textContent = `下载失败：${errText}`;
         }
+      }
+
+      function buildReplyQuote(message) {
+        const text = messageToPlainText(message).trim();
+        if (!text) return "";
+        const lines = text.split(/\r?\n/).map((line) => line.trimEnd());
+        const preview = lines.slice(0, 8).join("\n");
+        const suffix = lines.length > 8 ? "\n..." : "";
+        return `${preview}${suffix}`
+          .split("\n")
+          .map((line) => `> ${line}`)
+          .join("\n");
+      }
+
+      function replyToMessage(chatId, idx) {
+        const message = getMessageByIndex(chatId, idx);
+        if (!message || message.role !== "assistant") return;
+        const quote = buildReplyQuote(message);
+        if (!quote) return;
+        const input = document.getElementById("messageText");
+        if (!input) return;
+        const prefix = input.value.trim() ? "\n\n" : "";
+        insertTextAtCursor(input, `${prefix}${quote}\n\n`);
+        input.focus();
       }
 
       function roleLabel(role) {
@@ -4640,7 +4792,9 @@
                 <div class="message-content">
                   <div class="message-meta">${name}</div>
                   <div class="message-bubble message-bubble-with-actions">
-                    <div class="message-bubble-main">${renderMessageContent(m.content || "")}${renderMessageAttachments(m.attachments || [])}</div>
+                    <div class="message-bubble-main">${
+                      role === "user" ? renderPlainMessageContent(m.content || "") : renderMessageContent(m.content || "")
+                    }${renderMessageAttachments(m.attachments || [])}</div>
                     <div class="message-action-row">
                       <button class="message-action-btn" type="button" onclick="copyMessagePlainText('${chat.id}', ${idx}, this)" aria-label="复制文本" title="复制文本">
                         <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -4652,6 +4806,15 @@
                           <path d="M12 4v9M8 10l4 4 4-4M5 19h14" />
                         </svg>
                       </button>
+                      ${
+                        role === "assistant"
+                          ? `<button class="message-action-btn" type="button" onclick="replyToMessage('${chat.id}', ${idx})" aria-label="回复" title="回复">
+                              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                <path d="M10 8H5l5-5M5 8h8a6 6 0 0 1 6 6v3" />
+                              </svg>
+                            </button>`
+                          : ""
+                      }
                     </div>
                   </div>
                 </div>
@@ -4716,6 +4879,7 @@
               ? `<div class="list-sub">key: ${escapeHtml(displayModelMaskedKey(m))}</div>`
               : "";
             const streamChecked = m.use_streaming === false ? "" : "checked";
+            const imageChecked = m.supports_images === false ? "" : "checked";
             const streamControl = admin
               ? `
                   <label class="default-check">
@@ -4724,6 +4888,14 @@
                   </label>
                 `
               : `<span class="list-sub">流传输：${m.use_streaming === false ? "关" : "开"}</span>`;
+            const imageControl = admin
+              ? `
+                  <label class="default-check">
+                    <input type="checkbox" ${imageChecked} onchange="setModelImageSupport('${m.id}', this.checked)" />
+                    图片支持
+                  </label>
+                `
+              : `<span class="list-sub">图片支持：${m.supports_images === false ? "关" : "开"}</span>`;
             return `
               <div class="list-card">
                 <div class="list-title">${escapeHtml(m.name)}</div>
@@ -4732,6 +4904,7 @@
                 <div class="list-actions">
                   ${tag}
                   ${streamControl}
+                  ${imageControl}
                   <label class="default-check">
                     <input type="checkbox" ${checked} onchange="setDefaultModel('${m.id}', this.checked)" />
                     设为默认
@@ -4937,6 +5110,17 @@ function renderAgents() {
         await loadState();
       }
 
+      async function setModelImageSupport(id, checked) {
+        if (!isAdmin()) return;
+        await api(`/api/models/${id}/image-support`, {
+          method: "POST",
+          body: JSON.stringify({
+            supports_images: !!checked,
+          }),
+        });
+        await loadState();
+      }
+
       async function setDefaultModel(id, checked) {
         if (!checked) {
           if (!(await showConfirmDialog("要取消默认模型吗？", "取消默认模型"))) {
@@ -5025,6 +5209,7 @@ function renderAgents() {
         document.getElementById("upstreamContextMessages").value = Number(state?.app?.upstream_context_messages || 40);
         document.getElementById("upstreamContextChars").value = Number(state?.app?.upstream_context_chars || 120000);
         document.getElementById("upstreamImageMessages").value = Number(state?.app?.upstream_image_messages ?? 4);
+        document.getElementById("imageCompressionThresholdMb").value = Number(state?.app?.image_compression_threshold_mb ?? 2);
         pendingAppIconDataUrl = "";
         appIconTouched = false;
         renderAppIconPreview();
@@ -5083,6 +5268,7 @@ function renderAgents() {
           upstream_context_messages: clampIntegerInputValue("upstreamContextMessages", 40, 1, 500),
           upstream_context_chars: clampIntegerInputValue("upstreamContextChars", 120000, 1000, 1000000),
           upstream_image_messages: clampIntegerInputValue("upstreamImageMessages", 4, 0, 50),
+          image_compression_threshold_mb: clampIntegerInputValue("imageCompressionThresholdMb", 2, 0, 50),
         };
         if (appIconTouched) {
           body.app_icon_data_url = pendingAppIconDataUrl || "";
