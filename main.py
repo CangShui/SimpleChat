@@ -67,6 +67,8 @@ MAX_RETENTION_HOURS = 24 * 365 * 5
 MAX_UPSTREAM_CONTEXT_MESSAGES_LIMIT = 500
 MAX_UPSTREAM_CONTEXT_CHARS_LIMIT = 1_000_000
 MAX_UPSTREAM_IMAGE_MESSAGES_LIMIT = 50
+DEFAULT_IMAGE_COMPRESSION_THRESHOLD_MB = 2
+MAX_IMAGE_COMPRESSION_THRESHOLD_MB = 50
 
 
 def _env_int(name: str, default: int, minimum: int) -> int:
@@ -249,6 +251,18 @@ def _normalize_upstream_context_settings(app_meta: dict[str, Any] | None) -> dic
             DEFAULT_UPSTREAM_IMAGE_MESSAGES,
             0,
             MAX_UPSTREAM_IMAGE_MESSAGES_LIMIT,
+        ),
+    }
+
+
+def _normalize_image_compression_settings(app_meta: dict[str, Any] | None) -> dict[str, int]:
+    meta = app_meta or {}
+    return {
+        "image_compression_threshold_mb": _normalize_range_int(
+            meta.get("image_compression_threshold_mb"),
+            DEFAULT_IMAGE_COMPRESSION_THRESHOLD_MB,
+            0,
+            MAX_IMAGE_COMPRESSION_THRESHOLD_MB,
         ),
     }
 
@@ -436,6 +450,8 @@ def _describe_api_action(method: str, path: str) -> str:
         return "读取模型列表" if method_u == "GET" else "新增或更新模型"
     if method_u == "POST" and path.endswith("/streaming") and path.startswith("/api/models/"):
         return "修改模型流传输设置"
+    if method_u == "POST" and path.endswith("/image-support") and path.startswith("/api/models/"):
+        return "修改模型图片输入支持"
     if method_u == "DELETE" and path.startswith("/api/models/"):
         return "删除模型"
     if path == "/api/masks":
@@ -816,6 +832,7 @@ def _serialize_app_meta_for_client(app_meta: dict[str, Any] | None) -> dict[str,
         "message_text_ttl_hours": text_ttl_hours,
         "message_media_ttl_hours": media_ttl_hours,
         **_normalize_upstream_context_settings(meta),
+        **_normalize_image_compression_settings(meta),
     }
 
 
@@ -1319,7 +1336,7 @@ def _looks_like_image_generation_request(message_text: str, model_name: str) -> 
     model_lower = str(model_name or "").strip().lower()
     if "image" in model_lower:
         return True
-    keywords = (
+    phrase_keywords = (
         "生成图片",
         "生成图像",
         "画一张",
@@ -1329,13 +1346,13 @@ def _looks_like_image_generation_request(message_text: str, model_name: str) -> 
         "做图",
         "海报",
         "插画",
-        "logo",
-        "poster",
-        "draw",
         "generate image",
         "create image",
     )
-    return any(word in text for word in keywords)
+    if any(word in text for word in phrase_keywords):
+        return True
+    # Avoid matching substrings inside operational logs such as "LogonType".
+    return bool(re.search(r"(?<![a-z0-9_])(logo|poster|draw)(?![a-z0-9_])", text))
 
 
 def _is_image_generation_model(model_name: str) -> bool:
@@ -1421,6 +1438,7 @@ def _normalize_model(model: Any) -> dict[str, Any] | None:
         "api_key": str(model.get("api_key") or "").strip(),
         "enabled": _normalize_bool(model.get("enabled"), True),
         "use_streaming": _normalize_bool(model.get("use_streaming"), True),
+        "supports_images": _normalize_bool(model.get("supports_images"), True),
         "created_at": _safe_int(model.get("created_at"), ts),
         "updated_at": _safe_int(model.get("updated_at"), ts),
     }
@@ -2393,6 +2411,39 @@ def _build_user_message_for_upstream(msg: dict[str, Any], protocol: str) -> dict
     return {"role": "user", "content": parts}
 
 
+def _message_without_image_attachments(msg: dict[str, Any]) -> dict[str, Any]:
+    attachments = msg.get("attachments")
+    if not isinstance(attachments, list):
+        return msg
+    filtered_attachments = [
+        att
+        for att in attachments
+        if not (isinstance(att, dict) and att.get("kind") == "image")
+    ]
+    if len(filtered_attachments) == len(attachments):
+        return msg
+    slim = dict(msg)
+    if filtered_attachments:
+        slim["attachments"] = filtered_attachments
+    else:
+        slim.pop("attachments", None)
+    return slim
+
+
+def _message_without_images_has_content(msg: dict[str, Any]) -> bool:
+    if str(msg.get("content") or "").strip():
+        return True
+    attachments = msg.get("attachments")
+    if not isinstance(attachments, list):
+        return False
+    for att in attachments:
+        if not isinstance(att, dict):
+            continue
+        if att.get("kind") != "image":
+            return True
+    return False
+
+
 def _message_context_size(msg: dict[str, Any]) -> int:
     size = len(str(msg.get("content") or ""))
     attachments = msg.get("attachments")
@@ -2415,6 +2466,8 @@ def _message_has_image_attachment(msg: dict[str, Any]) -> bool:
 def _trim_messages_for_upstream(
     messages: list[Any],
     context_settings: dict[str, int] | None = None,
+    *,
+    include_images: bool = True,
 ) -> list[dict[str, Any]]:
     normalized = [msg for msg in messages if isinstance(msg, dict)]
     if not normalized:
@@ -2430,11 +2483,15 @@ def _trim_messages_for_upstream(
     total_size = 0
     image_messages = 0
     for msg in reversed(recent):
+        if not include_images:
+            msg = _message_without_image_attachments(msg)
+            if not _message_without_images_has_content(msg):
+                continue
         msg_size = _message_context_size(msg)
         if selected_reversed and total_size + msg_size > max_context_chars:
             break
 
-        if _message_has_image_attachment(msg):
+        if include_images and _message_has_image_attachment(msg):
             image_messages += 1
             if image_messages > max_image_messages:
                 slim = dict(msg)
@@ -2454,11 +2511,17 @@ def _build_request_messages(
     mask: dict[str, Any] | None,
     protocol: str,
     context_settings: dict[str, int] | None = None,
+    *,
+    include_images: bool = True,
 ) -> list[dict[str, Any]]:
     req_messages: list[dict[str, Any]] = []
     if mask and str(mask.get("prompt") or "").strip():
         req_messages.append({"role": "system", "content": mask["prompt"]})
-    for msg in _trim_messages_for_upstream(chat.get("messages", []), context_settings):
+    for msg in _trim_messages_for_upstream(
+        chat.get("messages", []),
+        context_settings,
+        include_images=include_images,
+    ):
         role = str(msg.get("role") or "").strip().lower()
         if role == "user":
             req_messages.append(_build_user_message_for_upstream(msg, protocol=protocol))
@@ -2505,6 +2568,58 @@ def _extract_upstream_error_text(res: httpx.Response) -> str:
         if isinstance(message, str) and message.strip():
             return message.strip()[:500]
     return body[:500]
+
+
+def _safe_upstream_url_for_log(url: str) -> str:
+    try:
+        parsed = urlsplit(str(url or ""))
+    except Exception:
+        return "[无法解析的上游URL]"
+    host = parsed.netloc or parsed.path.split("/", 1)[0]
+    path = parsed.path if parsed.netloc else ""
+    if not host:
+        return "[未配置上游URL]"
+    return urlunsplit((parsed.scheme or "https", host, path, "", ""))
+
+
+def _upstream_debug_info(
+    *,
+    url: str,
+    protocol: str,
+    model_name: str,
+    stream: bool,
+    body: dict[str, Any] | None = None,
+    status_code: int | None = None,
+    error_text: str | None = None,
+) -> dict[str, Any]:
+    info: dict[str, Any] = {
+        "上游URL": _safe_upstream_url_for_log(url),
+        "协议": protocol,
+        "模型": model_name,
+        "流式": stream,
+    }
+    if status_code is not None:
+        info["上游状态码"] = status_code
+    if error_text:
+        info["上游错误"] = error_text
+    if isinstance(body, dict):
+        input_value = body.get("input")
+        messages_value = body.get("messages")
+        req_items = input_value if isinstance(input_value, list) else messages_value
+        roles: list[str] = []
+        if isinstance(req_items, list):
+            for item in req_items[:20]:
+                if isinstance(item, dict):
+                    role = str(item.get("role") or "").strip()
+                    roles.append(role or "(无role)")
+        info["请求体摘要"] = {
+            "字段": sorted(str(key) for key in body.keys()),
+            "消息数": len(req_items) if isinstance(req_items, list) else None,
+            "角色": roles,
+            "包含temperature": "temperature" in body,
+            "包含instructions": "instructions" in body,
+        }
+    return info
 
 
 def _extract_assistant_text(data: dict[str, Any], protocol: str) -> str:
@@ -2616,7 +2731,7 @@ def _build_upstream_body(
     protocol: str,
     model_name: str,
     req_messages: list[dict[str, Any]],
-    temperature: float,
+    temperature: float | None,
     reasoning_effort: str | None = None,
     *,
     stream: bool = False,
@@ -2635,17 +2750,24 @@ def _build_upstream_body(
         }
 
     if protocol == "responses":
+        input_messages = list(req_messages)
+        instructions = ""
+        if input_messages and input_messages[0].get("role") == "system":
+            instructions = str(input_messages[0].get("content") or "").strip()
+            input_messages = input_messages[1:]
         body: dict[str, Any] = {
             "model": model_name,
-            "input": req_messages,
-            "temperature": temperature,
+            "input": input_messages,
         }
+        if instructions:
+            body["instructions"] = instructions
     else:
         body = {
             "model": model_name,
             "messages": req_messages,
-            "temperature": temperature,
         }
+    if temperature is not None and protocol != "responses":
+        body["temperature"] = temperature
     if reasoning_effort:
         if protocol == "responses":
             body["reasoning"] = {"effort": reasoning_effort}
@@ -2663,6 +2785,7 @@ async def _call_upstream_chat_completion(
     url: str,
     headers: dict[str, str],
     body: dict[str, Any],
+    debug_info: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     max_attempts = len(UPSTREAM_RETRY_DELAYS_SECONDS) + 1
     async with httpx.AsyncClient(timeout=120) as client:
@@ -2680,10 +2803,15 @@ async def _call_upstream_chat_completion(
                     await asyncio.sleep(UPSTREAM_RETRY_DELAYS_SECONDS[attempt])
                     continue
                 LOGGER.error("上游请求失败，已完成重试: %s", e)
-                raise HTTPException(status_code=502, detail=f"请求模型失败: {e}") from e
+                exc = HTTPException(status_code=502, detail=f"请求模型失败: {e}")
+                if debug_info:
+                    setattr(exc, "upstream_debug", debug_info)
+                raise exc from e
 
             if res.status_code >= 400:
                 error_text = _extract_upstream_error_text(res)
+                detail_info = dict(debug_info or {})
+                detail_info.update({"上游状态码": res.status_code, "上游错误": error_text})
                 if res.status_code in UPSTREAM_RETRY_STATUS_CODES and attempt < max_attempts - 1:
                     LOGGER.warning(
                         "上游返回错误，准备重试(%s/%s): status=%s detail=%s",
@@ -2699,15 +2827,24 @@ async def _call_upstream_chat_completion(
                     res.status_code,
                     error_text,
                 )
-                raise HTTPException(
+                exc = HTTPException(
                     status_code=502,
                     detail=f"上游错误({res.status_code}): {error_text}",
                 )
+                if detail_info:
+                    setattr(exc, "upstream_debug", detail_info)
+                raise exc
             try:
                 return res.json()
             except ValueError as e:
-                raise HTTPException(status_code=502, detail="上游返回了无法解析的 JSON 响应") from e
-    raise HTTPException(status_code=502, detail="请求模型失败: 未知错误")
+                exc = HTTPException(status_code=502, detail="上游返回了无法解析的 JSON 响应")
+                if debug_info:
+                    setattr(exc, "upstream_debug", debug_info)
+                raise exc from e
+    exc = HTTPException(status_code=502, detail="请求模型失败: 未知错误")
+    if debug_info:
+        setattr(exc, "upstream_debug", debug_info)
+    raise exc
 
 
 def _pick_first_enabled_model(store: dict[str, Any]) -> dict[str, Any] | None:
@@ -2727,6 +2864,7 @@ def _default_model_payload(name: str | None, base_url: str | None, api_key: str 
         "api_key": (api_key or DEFAULT_API_KEY).strip(),
         "enabled": True,
         "use_streaming": True,
+        "supports_images": True,
         "created_at": ts,
         "updated_at": ts,
     }
@@ -2813,6 +2951,7 @@ def _serialize_model_for_user(model: dict[str, Any], is_admin: bool) -> dict[str
         "provider": model.get("provider"),
         "enabled": bool(model.get("enabled", True)),
         "use_streaming": bool(model.get("use_streaming", True)),
+        "supports_images": bool(model.get("supports_images", True)),
         "created_at": model.get("created_at"),
         "updated_at": model.get("updated_at"),
     }
@@ -2866,10 +3005,15 @@ class ModelInput(BaseModel):
     api_key: str = ""
     enabled: bool = True
     use_streaming: bool = True
+    supports_images: bool = True
 
 
 class ModelStreamingInput(BaseModel):
     use_streaming: bool = True
+
+
+class ModelImageSupportInput(BaseModel):
+    supports_images: bool = True
 
 
 class MaskInput(BaseModel):
@@ -2943,6 +3087,11 @@ class AdminAppSettingsInput(BaseModel):
     app_title: str | None = None
     app_subtitle: str | None = None
     app_icon_data_url: str | None = None
+    image_compression_threshold_mb: int | None = Field(
+        default=None,
+        ge=0,
+        le=MAX_IMAGE_COMPRESSION_THRESHOLD_MB,
+    )
     upstream_context_messages: int | None = Field(
         default=None,
         ge=1,
@@ -3081,6 +3230,9 @@ async def enforce_api_auth(request: Request, call_next):
         response, error_detail = await _extract_error_detail_from_response(response)
         if error_detail:
             audit_extra = {"错误": error_detail}
+        state_extra = getattr(request.state, "audit_extra", None)
+        if isinstance(state_extra, dict):
+            audit_extra = {**(audit_extra or {}), **state_extra}
         _audit_log_api_request(
             request=request,
             status_code=response.status_code,
@@ -3318,6 +3470,7 @@ def upsert_model(payload: ModelInput, _admin: dict[str, Any] = Depends(require_a
             "api_key": payload.api_key.strip(),
             "enabled": payload.enabled,
             "use_streaming": payload.use_streaming,
+            "supports_images": payload.supports_images,
             "updated_at": now_ts(),
         }
     )
@@ -3341,6 +3494,27 @@ def update_model_streaming(
         raise HTTPException(status_code=404, detail="模型不存在")
 
     model["use_streaming"] = bool(payload.use_streaming)
+    model["updated_at"] = now_ts()
+    save_store(store)
+    return {"ok": True, "model": _serialize_model_for_user(model, True)}
+
+
+@app.post("/api/models/{model_id}/image-support")
+def update_model_image_support(
+    model_id: str,
+    payload: ModelImageSupportInput,
+    _admin: dict[str, Any] = Depends(require_admin),
+):
+    store = load_store()
+    model = None
+    for item in store.get("models", []):
+        if item.get("id") == model_id:
+            model = item
+            break
+    if model is None:
+        raise HTTPException(status_code=404, detail="模型不存在")
+
+    model["supports_images"] = bool(payload.supports_images)
     model["updated_at"] = now_ts()
     save_store(store)
     return {"ok": True, "model": _serialize_model_for_user(model, True)}
@@ -3764,7 +3938,11 @@ def _append_assistant_message_to_latest_chat(
 
 
 @app.post("/api/chat")
-async def send_message(payload: SendMessageInput, current_user: dict[str, Any] = Depends(require_auth)):
+async def send_message(
+    payload: SendMessageInput,
+    request: Request,
+    current_user: dict[str, Any] = Depends(require_auth),
+):
     store = load_store()
     user = find_user_by_id(store, current_user.get("id"))
     if not user:
@@ -3792,6 +3970,11 @@ async def send_message(payload: SendMessageInput, current_user: dict[str, Any] =
     attachments = _normalize_attachments(raw_attachments)
     if not message_text and not attachments:
         raise HTTPException(status_code=400, detail="消息内容和附件不能同时为空")
+    supports_images = bool(model.get("supports_images", True))
+    if not supports_images and not _message_without_images_has_content(
+        {"content": message_text, "attachments": attachments}
+    ):
+        raise HTTPException(status_code=400, detail="当前模型未开启图片支持，请输入文字或开启该模型的图片支持")
 
     url, protocol = _resolve_upstream_target(
         base_url=model.get("base_url", ""),
@@ -3811,6 +3994,7 @@ async def send_message(payload: SendMessageInput, current_user: dict[str, Any] =
         mask,
         protocol=protocol,
         context_settings=store.get("app") or {},
+        include_images=supports_images,
     )
     enable_image_generation = protocol == "responses" and _looks_like_image_generation_request(
         message_text,
@@ -3830,6 +4014,13 @@ async def send_message(payload: SendMessageInput, current_user: dict[str, Any] =
         enable_image_generation=enable_image_generation,
         image_prompt=message_text,
     )
+    upstream_debug = _upstream_debug_info(
+        url=url,
+        protocol=protocol,
+        model_name=model["name"],
+        stream=protocol != "images_generations",
+        body=body,
+    )
 
     chat["updated_at"] = now_ts()
     chat["model_id"] = model["id"]
@@ -3839,7 +4030,19 @@ async def send_message(payload: SendMessageInput, current_user: dict[str, Any] =
         chat["reasoning_effort"] = reasoning_effort
     save_store(store)
 
-    data = await _call_upstream_chat_completion(url=url, headers=headers, body=body)
+    try:
+        data = await _call_upstream_chat_completion(
+            url=url,
+            headers=headers,
+            body=body,
+            debug_info=upstream_debug,
+        )
+    except HTTPException as e:
+        if e.status_code == 502:
+            request.state.audit_extra = {
+                "上游诊断": getattr(e, "upstream_debug", upstream_debug),
+            }
+        raise
     assistant_text = _extract_assistant_text(data, protocol=protocol)
     assistant_generated_attachments = _extract_generated_image_attachments(data)
     svg_attachments = _extract_svg_attachments_from_text(
@@ -3901,6 +4104,11 @@ async def send_message_stream(
     attachments = _normalize_attachments(raw_attachments)
     if not message_text and not attachments:
         raise HTTPException(status_code=400, detail="消息内容和附件不能同时为空")
+    supports_images = bool(model.get("supports_images", True))
+    if not supports_images and not _message_without_images_has_content(
+        {"content": message_text, "attachments": attachments}
+    ):
+        raise HTTPException(status_code=400, detail="当前模型未开启图片支持，请输入文字或开启该模型的图片支持")
 
     url, protocol = _resolve_upstream_target(
         base_url=model.get("base_url", ""),
@@ -3920,6 +4128,7 @@ async def send_message_stream(
         mask,
         protocol=protocol,
         context_settings=store.get("app") or {},
+        include_images=supports_images,
     )
     enable_image_generation = protocol == "responses" and _looks_like_image_generation_request(
         message_text,
@@ -3939,6 +4148,13 @@ async def send_message_stream(
         stream=protocol != "images_generations",
         enable_image_generation=enable_image_generation,
         image_prompt=message_text,
+    )
+    upstream_debug = _upstream_debug_info(
+        url=url,
+        protocol=protocol,
+        model_name=model["name"],
+        stream=protocol != "images_generations",
+        body=body,
     )
 
     chat["updated_at"] = now_ts()
@@ -4051,6 +4267,9 @@ async def send_message_stream(
                                     err = parsed["error"]["message"][:500]
                         except Exception:
                             pass
+                        detail_info = dict(upstream_debug)
+                        detail_info.update({"上游状态码": res.status_code, "上游错误": err})
+                        LOGGER.error("流式上游返回错误: %s", detail_info)
                         raise HTTPException(status_code=502, detail=f"上游错误({res.status_code}): {err}")
 
                     pending_data_lines: list[str] = []
@@ -4144,7 +4363,10 @@ async def send_message_stream(
             raise
         except HTTPException as e:
             detail = e.detail if isinstance(e.detail, str) else str(e.detail)
-            _log_stream_audit(e.status_code, {"流式结果": "失败", "错误": detail})
+            extra = {"流式结果": "失败", "错误": detail}
+            if e.status_code == 502:
+                extra["上游诊断"] = upstream_debug
+            _log_stream_audit(e.status_code, extra)
             yield f"data: {json.dumps({'type': 'error', 'error': detail}, ensure_ascii=False)}\n\n"
         except Exception as e:
             detail = f"流式请求失败: {e}"
@@ -4286,6 +4508,13 @@ def admin_update_app_settings(
             app_meta["icon_filename"] = ""
             _remove_app_icon_files()
         app_meta.pop("icon_data_url", None)
+    current_image_compression_settings = _normalize_image_compression_settings(app_meta)
+    app_meta["image_compression_threshold_mb"] = _normalize_range_int(
+        payload.image_compression_threshold_mb,
+        current_image_compression_settings["image_compression_threshold_mb"],
+        0,
+        MAX_IMAGE_COMPRESSION_THRESHOLD_MB,
+    )
     current_context_settings = _normalize_upstream_context_settings(app_meta)
     app_meta["upstream_context_messages"] = _normalize_range_int(
         payload.upstream_context_messages,
